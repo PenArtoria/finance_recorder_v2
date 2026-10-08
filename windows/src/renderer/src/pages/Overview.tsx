@@ -1,0 +1,232 @@
+import { useMemo, useState } from 'react'
+import { ArrowRight, Plus, RefreshCw, Target } from 'lucide-react'
+import { CATEGORIES, CATEGORY_LABEL, goalProgress, history, monthChange, monthLabel } from '@/core/calc'
+import { formatPct } from '@/core/money'
+import { useChartColors, useFmt, usePortfolio } from '@/hooks'
+import { useNav } from '@/nav'
+import { useApp } from '@/store'
+import { AllocationDonut, NetWorthChart } from '@/components/charts'
+import { HoldingDialog } from '@/components/HoldingDialog'
+import { Card, CardHead, Delta, PageHead, Progress, Segmented } from '@/components/ui'
+import { ExampleBanner, GoalStatusPill } from './shared'
+
+function greeting(name: string) {
+  const h = new Date().getHours()
+  const part = h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+  return name ? `${part}, ${name}` : part
+}
+
+export function Overview() {
+  const data = useApp((s) => s.data)
+  const prices = useApp((s) => s.prices)
+  const refresh = useApp((s) => s.refreshPrices)
+  const go = useNav((s) => s.go)
+  const p = usePortfolio()
+  const fmt = useFmt()
+  const colors = useChartColors()
+  const [range, setRange] = useState<'12' | 'all'>('12')
+  const [adding, setAdding] = useState(false)
+
+  const points = useMemo(() => history(data, p), [data, p])
+  const shownPoints = range === 'all' ? points : points.slice(-13)
+  const change = useMemo(() => monthChange(data, p), [data, p])
+  const goals = useMemo(() => data.goals.map((g) => goalProgress(g, data, p)), [data, p])
+
+  const slices = CATEGORIES.map((c, i) => ({ key: c, label: CATEGORY_LABEL[c], value: p.totals[c], color: colors.series[i] })).filter(
+    (s) => s.value !== 0 || s.key === 'cash' || s.key === 'equities'
+  )
+
+  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+  const empty = data.holdings.length === 0 && data.buckets.length === 0
+
+  return (
+    <div className="page">
+      <PageHead title={greeting(data.settings.name)} sub={`Here’s where your money stands on ${today}.`}>
+        <button className="btn" onClick={() => refresh({ forceFx: true })} disabled={prices.loading}>
+          <RefreshCw size={15} className={prices.loading ? 'spin' : ''} /> Refresh prices
+        </button>
+        <button className="btn primary" onClick={() => setAdding(true)}>
+          <Plus size={16} /> Add holding
+        </button>
+      </PageHead>
+
+      <ExampleBanner />
+
+      <Card>
+        <div className="hero">
+          <div>
+            <div className="hero-label">Net worth · {fmt.base}</div>
+            <div className="hero-value">{fmt.money(p.totals.netWorth)}</div>
+            <div className="hero-delta">
+              {change.delta != null ? (
+                <span>
+                  <Delta value={change.delta} text={`${fmt.money(change.delta, { sign: true })} (${formatPct(change.pct)})`} />
+                  <span className="faint">since end of {monthLabel(change.previousMonth!, 'short')}</span>
+                </span>
+              ) : (
+                <span className="faint">Monthly change shows from next month, or add a past month in History.</span>
+              )}
+              {p.dayPct != null && Math.abs(p.dayChange) > 0.005 && (
+                <span>
+                  <Delta value={p.dayChange} text={`${fmt.money(p.dayChange, { sign: true })} (${formatPct(p.dayPct)})`} />
+                  <span className="faint">today</span>
+                </span>
+              )}
+            </div>
+          </div>
+          {change.detailed && change.market != null && change.flow != null ? (
+            <div className="split-chips">
+              <div className="split-chip">
+                <span className="muted">Market moves</span>
+                <b className={`num ${change.market >= 0 ? 'good' : 'bad'}`}>{fmt.money(change.market, { sign: true })}</b>
+              </div>
+              <div className="split-chip">
+                <span className="muted">Money added or saved</span>
+                <b className="num">{fmt.money(change.flow, { sign: true })}</b>
+              </div>
+            </div>
+          ) : (
+            <div className="split-chips">
+              <div className="split-chip">
+                <span className="muted">Investments</span>
+                <b className="num">{fmt.money(p.totals.investments)}</b>
+              </div>
+              <div className="split-chip">
+                <span className="muted">Cash</span>
+                <b className="num">{fmt.money(p.totals.cash)}</b>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {!empty && (
+        <div className="grid-2">
+          <Card>
+            <CardHead title="Net worth over time" sub="Month-end values; this month updates live">
+              <Segmented
+                value={range}
+                onChange={setRange}
+                label="Range"
+                options={[
+                  { value: '12', label: '12 months' },
+                  { value: 'all', label: 'All' }
+                ]}
+              />
+            </CardHead>
+            <NetWorthChart points={shownPoints} height={330} />
+          </Card>
+          <Card>
+            <CardHead title="Where your money is" sub={`In ${fmt.base} at today’s prices`} />
+            <AllocationDonut slices={slices} centerLabel="net worth" />
+          </Card>
+        </div>
+      )}
+
+      <div className="grid-2 even">
+        <Card>
+          <CardHead
+            title="What changed this month"
+            sub={change.previousMonth ? `Compared with the end of ${monthLabel(change.previousMonth, 'long')}` : 'Starts once a previous month is recorded'}
+          />
+          {change.items.length === 0 ? (
+            <p className="muted">
+              {change.previousMonth
+                ? 'Nothing has changed since last month.'
+                : 'Nest Egg saves your numbers at the end of every month. From next month you’ll see what moved and why.'}
+            </p>
+          ) : (
+            <div className="list">
+              {change.items.slice(0, 7).map((it) => (
+                <div className="list-row" key={it.key}>
+                  <div className="grow">
+                    <div className="title">
+                      {it.label}
+                      {it.isNew && <span className="pill accent" style={{ marginLeft: 8 }}>New</span>}
+                      {it.removed && <span className="pill" style={{ marginLeft: 8 }}>Removed</span>}
+                    </div>
+                    <div className="sub-line">
+                      {it.kind === 'category'
+                        ? it.sublabel
+                        : it.kind === 'bucket'
+                          ? Math.abs(it.market) > 0.5
+                            ? `Saved ${fmt.money(it.flow, { sign: true })} · exchange rate ${fmt.money(it.market, { sign: true })}`
+                            : it.flow >= 0
+                              ? 'Saved'
+                              : 'Spent or moved out'
+                          : it.isNew || it.removed
+                            ? it.sublabel
+                            : `Price ${fmt.money(it.market, { sign: true })}${Math.abs(it.flow) > 0.5 ? ` · ${it.flow > 0 ? 'bought' : 'sold'} ${fmt.money(Math.abs(it.flow))}` : ''}`}
+                    </div>
+                  </div>
+                  <Delta value={it.delta} text={fmt.money(it.delta, { sign: true })} />
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <CardHead title="Goals">
+            <button className="btn ghost sm" onClick={() => go('goals')}>
+              All goals <ArrowRight size={14} />
+            </button>
+          </CardHead>
+          {goals.length === 0 ? (
+            <div className="list-row" style={{ border: 0 }}>
+              <Target size={18} className="faint" />
+              <div className="grow muted">Set a goal, such as an emergency fund or a net worth target, and track it here.</div>
+              <button className="btn sm" onClick={() => go('goals')}>
+                Add goal
+              </button>
+            </div>
+          ) : (
+            <div className="list" style={{ gap: 4 }}>
+              {goals.slice(0, 4).map((g) => (
+                <div key={g.goal.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="grow title" style={{ flex: 1, minWidth: 0, fontWeight: 560 }}>{g.goal.name}</div>
+                    <GoalStatusPill status={g.status} />
+                  </div>
+                  <Progress value={g.pct} tone={g.status === 'reached' ? 'good' : undefined} />
+                  <div className="sub-line num">
+                    {fmt.money(g.current, { currency: g.goal.currency })} of {fmt.money(g.goal.target, { currency: g.goal.currency })} · {formatPct(Math.min(g.pct, 9.99), false, 0)}
+                    {g.goal.deadline ? ` · by ${monthLabel(g.goal.deadline)}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {empty && (
+        <Card>
+          <CardHead title="Get started" />
+          <div className="grid-3">
+            <button className="choice" onClick={() => setAdding(true)}>
+              <div>
+                <b>Add a holding</b>
+                <span>Stocks, ETFs and crypto with live prices.</span>
+              </div>
+            </button>
+            <button className="choice" onClick={() => go('cash')}>
+              <div>
+                <b>Set up cash buckets</b>
+                <span>Split savings into emergency, travel and more.</span>
+              </div>
+            </button>
+            <button className="choice" onClick={() => go('history')}>
+              <div>
+                <b>Bring in your history</b>
+                <span>Import monthly totals from Google Sheets.</span>
+              </div>
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {adding && <HoldingDialog onClose={() => setAdding(false)} />}
+    </div>
+  )
+}

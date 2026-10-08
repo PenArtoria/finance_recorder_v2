@@ -1,0 +1,35 @@
+{
+  "name": "nest-egg",
+  "productName": "Nest Egg",
+  "version": "1.0.0",
+  "description": "Personal net worth, cash bucket and goal tracker",
+  "author": "Moneta contributors",
+  "private": true,
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "icon": "electron scripts/make-icon.cjs",
+    "dist": "electron-vite build && electron-builder --win --x64",
+    "start": "electron-vite preview"
+  },
+  "devDependencies": {
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource-variable/source-serif-4": "^5.3.0",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "lucide-react": "^1.53.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "recharts": "^3.10.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.7",
+    "zustand": "^5.0.15"
+  }
+}
