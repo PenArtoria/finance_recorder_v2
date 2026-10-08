@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, Trash2 } from 'lucide-react'
 import type { CashBucket } from '@shared/types'
+import { assignedTo, bankAccounts, linkedAccount, moveMoney } from '@/core/cash'
 import { uid } from '@/core/data'
 import { convert, formatMoney, symbolFor } from '@/core/money'
 import { ratesOf } from '@/core/calc'
@@ -11,20 +12,28 @@ import { ConfirmDialog, Dialog, Field, NumberInput, Segmented } from './ui'
 export const BUCKET_SUGGESTIONS = ['Emergency fund', 'Living expenses', 'Travel', 'Investment reserve', 'Big purchase', 'Gifts']
 
 export function BucketDialog({ bucket, onClose }: { bucket?: CashBucket; onClose: () => void }) {
+  const data = useApp((s) => s.data)
   const mutate = useApp((s) => s.mutate)
   const toast = useApp((s) => s.toast)
-  const base = useApp((s) => s.data.settings.baseCurrency)
-  const count = useApp((s) => s.data.buckets.length)
+  const rates = useMemo(() => ratesOf(data), [data])
+  const accounts = bankAccounts(data)
   const editing = !!bucket
   const [name, setName] = useState(bucket?.name ?? '')
-  const [currency, setCurrency] = useState(bucket?.currency ?? base)
+  const [accountId, setAccountId] = useState<string>(bucket ? bucket.accountId ?? '' : accounts[0]?.id ?? '')
+  const account = accounts.find((a) => a.id === accountId)
+  const [ownCurrency, setOwnCurrency] = useState(bucket?.currency ?? data.settings.baseCurrency)
+  const currency = account ? account.currency : ownCurrency
   const [amount, setAmount] = useState<number | null>(bucket?.amount ?? null)
   const [target, setTarget] = useState<number | null>(bucket?.target ?? null)
-  const [color, setColor] = useState(bucket?.color ?? count % 8)
+  const [color, setColor] = useState(bucket?.color ?? data.buckets.length % 8)
   const [note, setNote] = useState(bucket?.note ?? '')
   const [tried, setTried] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
+  // Money in the account not yet given to any bucket (this bucket's current share counts as free).
+  const free = account
+    ? account.quantity - assignedTo(data, account.id, rates) + (bucket && bucket.accountId === account.id ? bucket.amount : 0)
+    : null
   const valid = name.trim().length > 0 && amount != null
 
   const save = () => {
@@ -35,6 +44,7 @@ export function BucketDialog({ bucket, onClose }: { bucket?: CashBucket; onClose
       name: name.trim(),
       amount: amount ?? 0,
       currency,
+      accountId: account ? account.id : null,
       target: target && target > 0 ? target : null,
       color,
       note: note.trim() || undefined,
@@ -60,11 +70,13 @@ export function BucketDialog({ bucket, onClose }: { bucket?: CashBucket; onClose
     onClose()
   }
 
+  const linkedNow = bucket ? linkedAccount(data, bucket) : undefined
+
   return (
     <>
       <Dialog
         title={editing ? `Edit ${bucket?.name}` : 'New cash bucket'}
-        sub="A bucket is money set aside for one purpose."
+        sub="A bucket is money set aside for one purpose, such as an emergency fund or a trip."
         onClose={onClose}
         footer={
           <>
@@ -89,20 +101,50 @@ export function BucketDialog({ bucket, onClose }: { bucket?: CashBucket; onClose
           {!editing && !name && (
             <div className="swatches">
               {BUCKET_SUGGESTIONS.map((s) => (
-                <button key={s} className="pill" style={{ border: 0, cursor: 'pointer' }} onClick={() => setName(s)}>
+                <button key={s} className="pill pill-btn" onClick={() => setName(s)}>
                   {s}
                 </button>
               ))}
             </div>
           )}
+          <Field
+            label="Where is this money kept?"
+            hint={
+              account
+                ? `It’s part of ${account.name}, so it’s counted once, inside that account.`
+                : accounts.length
+                  ? 'Counted as cash on its own, e.g. cash in your wallet.'
+                  : 'Add your bank accounts on the Holdings page to keep buckets inside them.'
+            }
+          >
+            <select className="select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} · {a.currency}
+                </option>
+              ))}
+              <option value="">Not in a tracked account (cash, wallet…)</option>
+            </select>
+          </Field>
           <div className="form-row">
-            <Field label="Currency">
-              <CurrencySelect value={currency} onChange={setCurrency} />
+            <Field label="Currency" hint={account ? 'Same as the account.' : undefined}>
+              {account ? <input className="input" value={currency} disabled /> : <CurrencySelect value={ownCurrency} onChange={setOwnCurrency} />}
             </Field>
-            <Field label="Amount now" error={tried && amount == null ? 'Enter the amount, even if it is 0.' : undefined}>
+            <Field
+              label="Amount set aside"
+              error={tried && amount == null ? 'Enter the amount, even if it is 0.' : undefined}
+              hint={free != null ? `${formatMoney(free, currency)} of ${account!.name} isn’t in a bucket yet.` : undefined}
+            >
               <NumberInput value={amount} onChange={setAmount} prefix={symbolFor(currency)} placeholder="0.00" />
             </Field>
           </div>
+          {free != null && amount != null && amount > free + 0.005 && (
+            <div className="banner warn">
+              <div className="grow">
+                That’s {formatMoney(amount - free, currency)} more than {account!.name} has free. Update the account balance on the Holdings page if it has grown.
+              </div>
+            </div>
+          )}
           <Field label="Target (optional)" hint="Shows a progress bar toward this amount.">
             <NumberInput value={target} onChange={setTarget} prefix={symbolFor(currency)} placeholder="0.00" />
           </Field>
@@ -121,14 +163,18 @@ export function BucketDialog({ bucket, onClose }: { bucket?: CashBucket; onClose
             </div>
           </Field>
           <Field label="Note (optional)">
-            <input className="input" value={note} placeholder="e.g. HSBC savings account" onChange={(e) => setNote(e.target.value)} />
+            <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
         </div>
       </Dialog>
       {confirmDelete && bucket && (
         <ConfirmDialog
           title={`Remove ${bucket.name}?`}
-          body="The bucket and its amount are removed from your cash. Past months keep their recorded values."
+          body={
+            linkedNow
+              ? `Its ${formatMoney(bucket.amount, bucket.currency)} goes back to unassigned money in ${linkedNow.name}. Your balance doesn’t change.`
+              : 'The bucket and its amount are removed from your cash. Past months keep their recorded values.'
+          }
           confirmLabel="Remove"
           onConfirm={remove}
           onClose={() => setConfirmDelete(false)}
@@ -139,17 +185,29 @@ export function BucketDialog({ bucket, onClose }: { bucket?: CashBucket; onClose
 }
 
 export function AdjustDialog({ bucket, onClose }: { bucket: CashBucket; onClose: () => void }) {
+  const data = useApp((s) => s.data)
   const mutate = useApp((s) => s.mutate)
   const toast = useApp((s) => s.toast)
+  const rates = useMemo(() => ratesOf(data), [data])
+  const account = linkedAccount(data, bucket)
   const [side, setSide] = useState<'add' | 'take'>('add')
   const [amount, setAmount] = useState<number | null>(null)
-  const after = bucket.amount + (side === 'add' ? 1 : -1) * (amount ?? 0)
+  // For a bucket inside an account: does the money also enter or leave the bank?
+  const [newMoney, setNewMoney] = useState(false)
+  const [leftBank, setLeftBank] = useState(true)
+  const touchesBank = account ? (side === 'add' ? newMoney : leftBank) : false
+  const delta = (side === 'add' ? 1 : -1) * (amount ?? 0)
+  const after = bucket.amount + delta
+  const free = account ? account.quantity - assignedTo(data, account.id, rates) : null
 
   const save = () => {
     if (!amount) return
     mutate((d) => {
-      const b = d.buckets.find((x) => x.id === bucket.id)
-      if (b) b.amount = +after.toFixed(8)
+      if (touchesBank || !account) moveMoney(d, { kind: 'bucket', id: bucket.id }, delta, ratesOf(d))
+      else {
+        const b = d.buckets.find((x) => x.id === bucket.id)
+        if (b) b.amount = +(b.amount + delta).toFixed(8)
+      }
     })
     toast(`${bucket.name}: ${formatMoney(after, bucket.currency)}`, 'success')
     onClose()
@@ -158,7 +216,7 @@ export function AdjustDialog({ bucket, onClose }: { bucket: CashBucket; onClose:
   return (
     <Dialog
       title={bucket.name}
-      sub={`Now ${formatMoney(bucket.amount, bucket.currency)}`}
+      sub={`Now ${formatMoney(bucket.amount, bucket.currency)}${account ? ` · kept in ${account.name}` : ''}`}
       onClose={onClose}
       footer={
         <>
@@ -181,20 +239,38 @@ export function AdjustDialog({ bucket, onClose }: { bucket: CashBucket; onClose:
             { value: 'take', label: 'Take out' }
           ]}
         />
-        <Field label="Amount">
+        <Field label="Amount" hint={account && side === 'add' && !newMoney && free != null ? `${formatMoney(free, bucket.currency)} unassigned in ${account.name}.` : undefined}>
           <NumberInput value={amount} onChange={setAmount} prefix={symbolFor(bucket.currency)} autoFocus placeholder="0.00" />
         </Field>
+        {account && side === 'add' && (
+          <label className="check">
+            <input type="checkbox" checked={newMoney} onChange={(e) => setNewMoney(e.target.checked)} />
+            This is new money paid into {account.name} (e.g. salary). Leave it off to use unassigned money.
+          </label>
+        )}
+        {account && side === 'take' && (
+          <label className="check">
+            <input type="checkbox" checked={leftBank} onChange={(e) => setLeftBank(e.target.checked)} />
+            The money left {account.name} (spent or withdrawn). Turn it off to move it back to unassigned.
+          </label>
+        )}
         <p className="muted">
           New balance <b className="num" style={{ color: after < 0 ? 'var(--bad)' : 'var(--ink)' }}>{formatMoney(after, bucket.currency)}</b>
+          {account && touchesBank && amount ? (
+            <>
+              {' '}· {account.name} becomes <b className="num">{formatMoney(account.quantity + (convert(delta, bucket.currency, account.currency, rates) ?? delta), account.currency)}</b>
+            </>
+          ) : null}
         </p>
+        <p className="faint" style={{ fontSize: 12.5 }}>To note down day-to-day spending, use the Spending page instead. It keeps a dated record.</p>
       </div>
     </Dialog>
   )
 }
 
 export function TransferDialog({ fromId, onClose }: { fromId?: string; onClose: () => void }) {
-  const buckets = useApp((s) => s.data.buckets)
   const data = useApp((s) => s.data)
+  const buckets = data.buckets
   const rates = useMemo(() => ratesOf(data), [data])
   const mutate = useApp((s) => s.mutate)
   const toast = useApp((s) => s.toast)
@@ -205,16 +281,16 @@ export function TransferDialog({ fromId, onClose }: { fromId?: string; onClose: 
   const B = buckets.find((b) => b.id === to)
   const received = A && B && amount ? convert(amount, A.currency, B.currency, rates) : null
   const valid = A && B && A.id !== B.id && amount && amount > 0 && received != null
+  const accA = A ? linkedAccount(data, A) : undefined
+  const accB = B ? linkedAccount(data, B) : undefined
 
   const save = () => {
     if (!valid || !A || !B || received == null || !amount) return
+    // Each side moves its own account's balance too, so a move inside one account cancels out.
     mutate((d) => {
-      const a = d.buckets.find((x) => x.id === A.id)
-      const b = d.buckets.find((x) => x.id === B.id)
-      if (a && b) {
-        a.amount = +(a.amount - amount).toFixed(8)
-        b.amount = +(b.amount + received).toFixed(8)
-      }
+      const r = ratesOf(d)
+      moveMoney(d, { kind: 'bucket', id: A.id }, -amount, r)
+      moveMoney(d, { kind: 'bucket', id: B.id }, received, r)
     })
     toast(`Moved ${formatMoney(amount, A.currency)} from ${A.name} to ${B.name}.`, 'success')
     onClose()
@@ -236,7 +312,7 @@ export function TransferDialog({ fromId, onClose }: { fromId?: string; onClose: 
       }
     >
       <div className="form">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 10, alignItems: 'end' }}>
+        <div className="transfer-row">
           <Field label="From">
             <select className="select" value={from} onChange={(e) => setFrom(e.target.value)}>
               {buckets.map((b) => (
@@ -246,7 +322,7 @@ export function TransferDialog({ fromId, onClose }: { fromId?: string; onClose: 
               ))}
             </select>
           </Field>
-          <ArrowRight size={18} style={{ marginBottom: 10, color: 'var(--ink-3)' }} />
+          <ArrowRight size={18} className="faint" style={{ marginBottom: 10 }} />
           <Field label="To">
             <select className="select" value={to} onChange={(e) => setTo(e.target.value)}>
               {buckets.map((b) => (
@@ -269,6 +345,11 @@ export function TransferDialog({ fromId, onClose }: { fromId?: string; onClose: 
             ) : (
               <>No exchange rate for {A.currency} → {B.currency} yet. Refresh prices first.</>
             )}
+          </p>
+        ) : null}
+        {accA?.id !== accB?.id && (accA || accB) && amount ? (
+          <p className="faint" style={{ fontSize: 12.5 }}>
+            The money also moves between accounts: {accA ? accA.name : 'cash on its own'} → {accB ? accB.name : 'cash on its own'}.
           </p>
         ) : null}
       </div>

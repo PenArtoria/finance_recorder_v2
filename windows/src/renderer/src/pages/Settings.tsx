@@ -34,15 +34,15 @@ export function Settings() {
 
   const exportBackup = async () => {
     const path = await window.api.exportFile({
-      defaultName: `nest-egg-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      defaultName: `moneta-backup-${new Date().toISOString().slice(0, 10)}.json`,
       content: JSON.stringify(data, null, 1),
-      filters: [{ name: 'Nest Egg backup', extensions: ['json'] }]
+      filters: [{ name: 'Moneta backup', extensions: ['json'] }]
     })
     if (path) toast('Backup saved.', 'success')
   }
 
   const restoreBackup = async () => {
-    const file = await window.api.importFile([{ name: 'Nest Egg backup', extensions: ['json'] }])
+    const file = await window.api.importFile([{ name: 'Moneta backup', extensions: ['json'] }])
     if (!file) return
     let parsed: AppData
     try {
@@ -50,12 +50,12 @@ export function Settings() {
       if (!raw || typeof raw !== 'object' || !('holdings' in raw || 'snapshots' in raw)) throw new Error('not a backup')
       parsed = normalizeData(raw)
     } catch {
-      toast('That file is not a Nest Egg backup.', 'error')
+      toast('That file is not a Moneta backup.', 'error')
       return
     }
     setConfirm({
       title: 'Restore this backup?',
-      body: `Everything in Nest Egg is replaced with ${file.name}: ${parsed.holdings.length} holdings, ${parsed.buckets.length} buckets, ${parsed.goals.length} goals and ${parsed.snapshots.length} months.`,
+      body: `Everything in Moneta is replaced with ${file.name}: ${parsed.holdings.length} holdings, ${parsed.buckets.length} buckets, ${parsed.goals.length} goals and ${parsed.snapshots.length} months.`,
       label: 'Restore',
       run: () => {
         replace({ ...parsed, onboarded: true })
@@ -135,7 +135,7 @@ export function Settings() {
         <div className="setting-row">
           <div className="text">
             <b>Refresh prices</b>
-            <span>While Nest Egg is open. Prices come from Yahoo Finance and can be delayed up to 15 minutes.</span>
+            <span>While Moneta is open. Prices come from Yahoo Finance and can be delayed up to 15 minutes.</span>
           </div>
           <select className="select" style={{ width: 180 }} value={s.refreshMinutes} onChange={(e) => set('refreshMinutes', Number(e.target.value))}>
             <option value={0}>Only when I ask</option>
@@ -172,7 +172,7 @@ export function Settings() {
             <b>Where it’s saved</b>
             <span>
               Everything is in one file on this computer, with a daily backup kept for 30 days. Put it in a OneDrive or iCloud Drive folder to back it up and to share it with
-              another computer running Nest Egg.
+              another computer running Moneta.
             </span>
             {info && <div className="path">{info.file}</div>}
           </div>
@@ -238,7 +238,7 @@ export function Settings() {
           <div className="setting-row">
             <div className="text">
               <b>Explore with an example</b>
-              <span>Loads a made-up portfolio with VWRA, VALL, RKLB and Bitcoin.</span>
+              <span>Loads a made-up portfolio with VWRA, VALL, RKLB, Bitcoin, bank accounts, buckets and spending.</span>
             </div>
             <button
               className="btn"
@@ -256,7 +256,7 @@ export function Settings() {
       </Card>
 
       <p className="faint" style={{ fontSize: 12.5, textAlign: 'center' }}>
-        Nest Egg {version} · Prices from Yahoo Finance, exchange rates from open.er-api.com. For tracking only, not financial advice.
+        Moneta {version} · Prices from Yahoo Finance, exchange rates from open.er-api.com. For tracking only, not financial advice.
       </p>
 
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={confirm.label} onConfirm={confirm.run} onClose={() => setConfirm(null)} />}

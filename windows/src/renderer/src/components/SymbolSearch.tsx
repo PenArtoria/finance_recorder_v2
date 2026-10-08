@@ -112,7 +112,7 @@ export function SymbolSearch({ onPick, autoFocus }: { onPick: (m: SymbolMatch) =
               onClick={() => pick(r)}
             >
               <span className="code">{r.symbol}</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{r.name}</span>
+              <span className="name" title={r.name}>{r.name}</span>
               <span className="meta">
                 {TYPE_LABEL[r.type]} · {r.exchange}
               </span>

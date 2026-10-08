@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { NestEggApi } from './index.d'
+import type { MonetaApi } from './index.d'
 
-const api: NestEggApi = {
+const api: MonetaApi = {
   loadData: () => ipcRenderer.invoke('data:load'),
   saveData: (data) => ipcRenderer.invoke('data:save', data),
   dataInfo: () => ipcRenderer.invoke('data:info'),

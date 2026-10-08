@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react'
-import { ArrowRight, Plus, RefreshCw, Target } from 'lucide-react'
-import { CATEGORIES, CATEGORY_LABEL, goalProgress, history, monthChange, monthLabel } from '@/core/calc'
+import { ArrowRight, Plus, ReceiptText, RefreshCw, Target } from 'lucide-react'
+import { CATEGORIES, CATEGORY_LABEL, goalProgress, history, monthChange, monthKey, monthLabel } from '@/core/calc'
+import { byCategory, categoryLabel, dailyTotals, expensesIn } from '@/core/spending'
+import { todayIso } from '@/core/trades'
 import { formatPct } from '@/core/money'
 import { useChartColors, useFmt, usePortfolio } from '@/hooks'
 import { useNav } from '@/nav'
 import { useApp } from '@/store'
 import { AllocationDonut, NetWorthChart } from '@/components/charts'
+import { CategoryIcon, ExpenseDialog } from '@/components/ExpenseDialog'
 import { HoldingDialog } from '@/components/HoldingDialog'
 import { Card, CardHead, Delta, PageHead, Progress, Segmented } from '@/components/ui'
 import { ExampleBanner, GoalStatusPill } from './shared'
@@ -25,7 +28,8 @@ export function Overview() {
   const fmt = useFmt()
   const colors = useChartColors()
   const [range, setRange] = useState<'12' | 'all'>('12')
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState<'investment' | 'bank' | null>(null)
+  const [spending, setSpending] = useState(false)
 
   const points = useMemo(() => history(data, p), [data, p])
   const shownPoints = range === 'all' ? points : points.slice(-13)
@@ -36,16 +40,30 @@ export function Overview() {
     (s) => s.value !== 0 || s.key === 'cash' || s.key === 'equities'
   )
 
+  const spent = useMemo(() => {
+    const items = expensesIn(data, monthKey()).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt)
+    const daily = dailyTotals(items, p.base, p.rates)
+    return {
+      items,
+      total: [...daily.values()].reduce((s, v) => s + v, 0),
+      today: daily.get(todayIso()) ?? 0,
+      top: byCategory(items, p.base, p.rates)[0]
+    }
+  }, [data, p.base, p.rates])
+
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
   const empty = data.holdings.length === 0 && data.buckets.length === 0
 
   return (
     <div className="page">
       <PageHead title={greeting(data.settings.name)} sub={`Here’s where your money stands on ${today}.`}>
-        <button className="btn" onClick={() => refresh({ forceFx: true })} disabled={prices.loading}>
+        <button className="btn ghost" onClick={() => refresh({ forceFx: true })} disabled={prices.loading}>
           <RefreshCw size={15} className={prices.loading ? 'spin' : ''} /> Refresh prices
         </button>
-        <button className="btn primary" onClick={() => setAdding(true)}>
+        <button className="btn" onClick={() => setSpending(true)}>
+          <ReceiptText size={15} /> Add spending
+        </button>
+        <button className="btn primary" onClick={() => setAdding('investment')}>
           <Plus size={16} /> Add holding
         </button>
       </PageHead>
@@ -133,7 +151,7 @@ export function Overview() {
             <p className="muted">
               {change.previousMonth
                 ? 'Nothing has changed since last month.'
-                : 'Nest Egg saves your numbers at the end of every month. From next month you’ll see what moved and why.'}
+                : 'Moneta saves your numbers at the end of every month. From next month you’ll see what moved and why.'}
             </p>
           ) : (
             <div className="list">
@@ -166,6 +184,7 @@ export function Overview() {
           )}
         </Card>
 
+        <div className="stack">
         <Card>
           <CardHead title="Goals">
             <button className="btn ghost sm" onClick={() => go('goals')}>
@@ -198,22 +217,61 @@ export function Overview() {
             </div>
           )}
         </Card>
+
+        <Card>
+          <CardHead title="Spending this month" sub={spent.items.length ? `${fmt.money(spent.today)} today` : undefined}>
+            <button className="btn ghost sm" onClick={() => go('spending')}>
+              Calendar <ArrowRight size={14} />
+            </button>
+          </CardHead>
+          {spent.items.length === 0 ? (
+            <div className="list-row" style={{ border: 0 }}>
+              <ReceiptText size={18} className="faint" />
+              <div className="grow muted">Note what you spend each day and it comes out of the bucket you choose.</div>
+              <button className="btn sm" onClick={() => setSpending(true)}>
+                Add spending
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="goal-figures">
+                <span className="big num">{fmt.money(spent.total)}</span>
+                <span className="muted">
+                  in {monthLabel(monthKey(), 'long').split(' ')[0]}
+                  {spent.top ? ` · most on ${spent.top.label.toLowerCase()}` : ''}
+                </span>
+              </div>
+              <div className="list">
+                {spent.items.slice(0, 4).map((e) => (
+                  <div className="list-row" key={e.id} style={{ padding: '8px 0' }}>
+                    <span className="cat-ic">
+                      <CategoryIcon category={e.category} size={15} />
+                    </span>
+                    <div className="grow title" style={{ fontWeight: 500 }}>{e.note || categoryLabel(e.category)}</div>
+                    <span className="num">−{fmt.money(e.amount, { currency: e.currency })}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </Card>
+        </div>
       </div>
 
       {empty && (
         <Card>
           <CardHead title="Get started" />
           <div className="grid-3">
-            <button className="choice" onClick={() => setAdding(true)}>
+            <button className="choice" onClick={() => setAdding('investment')}>
               <div>
-                <b>Add a holding</b>
+                <b>Add an investment</b>
                 <span>Stocks, ETFs and crypto with live prices.</span>
               </div>
             </button>
-            <button className="choice" onClick={() => go('cash')}>
+            <button className="choice" onClick={() => setAdding('bank')}>
               <div>
-                <b>Set up cash buckets</b>
-                <span>Split savings into emergency, travel and more.</span>
+                <b>Add a bank account</b>
+                <span>Then split it into buckets: emergency, travel and more.</span>
               </div>
             </button>
             <button className="choice" onClick={() => go('history')}>
@@ -226,7 +284,8 @@ export function Overview() {
         </Card>
       )}
 
-      {adding && <HoldingDialog onClose={() => setAdding(false)} />}
+      {adding && <HoldingDialog kind={adding} onClose={() => setAdding(null)} />}
+      {spending && <ExpenseDialog onClose={() => setSpending(false)} />}
     </div>
   )
 }

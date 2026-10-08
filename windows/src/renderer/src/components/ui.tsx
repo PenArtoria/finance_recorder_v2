@@ -185,6 +185,8 @@ export function NumberInput({
   )
 }
 
+let openDialogs: string[] = []
+
 export function Dialog({
   title,
   sub,
@@ -201,13 +203,20 @@ export function Dialog({
   wide?: boolean
 }) {
   const titleId = useId()
+  // Dialogs can open on top of each other; Escape closes only the top one.
+  useEffect(() => {
+    openDialogs.push(titleId)
+    return () => {
+      openDialogs = openDialogs.filter((x) => x !== titleId)
+    }
+  }, [titleId])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && openDialogs[openDialogs.length - 1] === titleId) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, titleId])
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`dialog ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
@@ -281,7 +290,12 @@ export function Empty({ icon, title, children, action }: { icon: ReactNode; titl
 
 export function AssetMark({ symbol, name }: { symbol: string; name: string }) {
   const text = (symbol || name).replace(/[-.=].*$/, '').slice(0, 4).toUpperCase()
-  return <div className="asset-mark">{text}</div>
+  // Four letters need a smaller size to stay inside the badge.
+  return (
+    <div className="asset-mark" style={{ fontSize: text.length >= 4 ? 10 : 11.5 }}>
+      {text}
+    </div>
+  )
 }
 
 export function Toasts() {

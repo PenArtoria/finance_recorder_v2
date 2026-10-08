@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Goal, History, LayoutDashboard, LineChart, RefreshCw, Settings, Wallet } from 'lucide-react'
+import { CalendarDays, Eye, EyeOff, Goal, History, LayoutDashboard, LineChart, RefreshCw, Settings, Wallet } from 'lucide-react'
 import { timeAgo, useNow, usePortfolio } from '@/hooks'
 import { useNav, type Page } from '@/nav'
 import { useApp } from '@/store'
@@ -6,8 +6,9 @@ import { Logo } from './Logo'
 
 const NAV: { page: Page; label: string; icon: typeof Wallet }[] = [
   { page: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { page: 'investments', label: 'Investments', icon: LineChart },
+  { page: 'holdings', label: 'Holdings', icon: LineChart },
   { page: 'cash', label: 'Cash buckets', icon: Wallet },
+  { page: 'spending', label: 'Spending', icon: CalendarDays },
   { page: 'goals', label: 'Goals', icon: Goal },
   { page: 'history', label: 'Monthly history', icon: History }
 ]
@@ -39,7 +40,7 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="brand">
         <Logo size={26} />
-        <span className="brand-name">Nest Egg</span>
+        <span className="brand-name">Moneta</span>
       </div>
       <nav className="nav" aria-label="Main">
         {NAV.map(({ page: p, label, icon: Icon }) => (

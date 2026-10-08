@@ -1,5 +1,6 @@
+# Kept from the Nest Egg release so installing Moneta upgrades it instead of adding a second app.
 appId: com.nestegg.app
-productName: Nest Egg
+productName: Moneta
 copyright: Copyright © 2026 Moneta contributors
 directories:
   buildResources: build
@@ -13,13 +14,13 @@ win:
     - target: nsis
       arch: [x64]
   icon: build/icon.png
-  artifactName: Nest-Egg-Setup-${version}.${ext}
+  artifactName: Moneta-Setup-${version}.${ext}
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: Nest Egg
-  uninstallDisplayName: Nest Egg
+  shortcutName: Moneta
+  uninstallDisplayName: Moneta
   deleteAppDataOnUninstall: false

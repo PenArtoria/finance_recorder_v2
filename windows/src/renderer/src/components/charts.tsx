@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Area,
   AreaChart,
@@ -144,72 +144,66 @@ export interface Slice {
 
 export function AllocationDonut({ slices, centerLabel }: { slices: Slice[]; centerLabel: string }) {
   const { c, fmt } = useAxis()
+  // Hovering a slice or a legend row shows that slice in the centre, so nothing covers the label.
+  const [active, setActive] = useState<string | null>(null)
   const total = slices.reduce((s, x) => s + Math.max(0, x.value), 0)
   const shown = slices.filter((s) => s.value > 0)
   if (total <= 0) {
     return <p className="muted">Add holdings or cash to see how your money is split.</p>
   }
+  const hot = shown.find((s) => s.key === active)
   return (
     <div className="donut-box">
-    <div className="donut-wrap">
-      <div className="donut-center" style={{ width: 170, height: 170 }}>
-        <PieChart width={170} height={170}>
-          <Pie
-            data={shown}
-            dataKey="value"
-            nameKey="label"
-            innerRadius={56}
-            outerRadius={82}
-            startAngle={90}
-            endAngle={-270}
-            stroke={c.surface}
-            strokeWidth={2}
-            isAnimationActive={false}
-          >
-            {shown.map((s) => (
-              <Cell key={s.key} fill={s.color} />
-            ))}
-          </Pie>
-          <Tooltip
-            content={({ active, payload }) => {
-              const d = active && (payload?.[0]?.payload as Slice | undefined)
-              if (!d) return null
-              return (
-                <Tip
-                  title={d.label}
-                  rows={[
-                    { color: d.color, label: 'Value', value: fmt.money(d.value) },
-                    { label: 'Share', value: formatPct(d.value / total, false, 1) }
-                  ]}
-                />
-              )
-            }}
-          />
-        </PieChart>
-        <div className="label">
-          <div>
-            <b>{fmt.money(total, { compact: true })}</b>
-            <small>{centerLabel}</small>
+      <div className="donut-wrap">
+        <div className="donut-center" style={{ width: 170, height: 170 }} onMouseLeave={() => setActive(null)}>
+          <PieChart width={170} height={170}>
+            <Pie
+              data={shown}
+              dataKey="value"
+              nameKey="label"
+              innerRadius={56}
+              outerRadius={82}
+              startAngle={90}
+              endAngle={-270}
+              stroke={c.surface}
+              strokeWidth={shown.length > 1 ? 2 : 0}
+              isAnimationActive={false}
+              onMouseEnter={(_: unknown, i: number) => setActive(shown[i]?.key ?? null)}
+            >
+              {shown.map((s) => (
+                <Cell key={s.key} fill={s.color} fillOpacity={hot && hot.key !== s.key ? 0.3 : 1} />
+              ))}
+            </Pie>
+          </PieChart>
+          <div className="label">
+            <div>
+              <b>{fmt.money(hot ? hot.value : total, { compact: true })}</b>
+              <small>{hot ? `${hot.label} · ${formatPct(hot.value / total, false, 0)}` : centerLabel}</small>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="list">
-        {slices.map((s) => (
-          <div className="list-row" key={s.key}>
-            <i className="key-dot" style={{ background: s.color }} />
-            <div className="grow title" style={{ fontWeight: 500 }}>
-              {s.label}
+        <div className="list">
+          {slices.map((s) => (
+            <div
+              className={`list-row legend-row ${active === s.key ? 'on' : ''}`}
+              key={s.key}
+              onMouseEnter={() => setActive(s.key)}
+              onMouseLeave={() => setActive(null)}
+            >
+              <i className="key-dot" style={{ background: s.color }} />
+              <div className="grow title" style={{ fontWeight: 500 }}>
+                {s.label}
+              </div>
+              <span className="faint num" style={{ fontSize: 12.5 }}>
+                {total > 0 ? formatPct(Math.max(0, s.value) / total, false, 1) : '—'}
+              </span>
+              <span className="num" style={{ minWidth: 92, textAlign: 'right', fontWeight: 560 }}>
+                {fmt.money(s.value)}
+              </span>
             </div>
-            <span className="faint num" style={{ fontSize: 12.5 }}>
-              {total > 0 ? formatPct(Math.max(0, s.value) / total, false, 1) : '—'}
-            </span>
-            <span className="num" style={{ minWidth: 92, textAlign: 'right', fontWeight: 560 }}>
-              {fmt.money(s.value)}
-            </span>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </div>
     </div>
   )
 }

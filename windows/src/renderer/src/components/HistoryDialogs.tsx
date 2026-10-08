@@ -283,7 +283,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
               <Field label="Currency of the numbers">
                 <CurrencySelect value={currency} onChange={setCurrency} />
               </Field>
-              <Field label="Months already in Nest Egg">
+              <Field label="Months already in Moneta">
                 <select className="select" value={replace ? 'replace' : 'skip'} onChange={(e) => setReplace(e.target.value === 'replace')}>
                   <option value="skip">Keep what is there</option>
                   <option value="replace">Replace with the imported numbers</option>

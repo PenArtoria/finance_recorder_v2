@@ -45,7 +45,7 @@ export function History() {
         r.pct != null ? (r.pct * 100).toFixed(2) : ''
       ])
     const path = await window.api.exportFile({
-      defaultName: `nest-egg-history-${new Date().toISOString().slice(0, 10)}.csv`,
+      defaultName: `moneta-history-${new Date().toISOString().slice(0, 10)}.csv`,
       content: toCsv([header, ...body]),
       filters: [{ name: 'CSV', extensions: ['csv'] }]
     })
@@ -195,7 +195,7 @@ function MonthDetail({ snapshot, live, onEdit }: { snapshot?: Snapshot; live: bo
   if (live) {
     return (
       <div className="muted" style={{ padding: '4px 0' }}>
-        This month is still running. Its numbers follow your live holdings and buckets, and are kept as they are on the last day you open Nest Egg this month.
+        This month is still running. Its numbers follow your live holdings and buckets, and are kept as they are on the last day you open Moneta this month.
       </div>
     )
   }

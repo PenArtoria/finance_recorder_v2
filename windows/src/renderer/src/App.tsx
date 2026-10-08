@@ -8,12 +8,13 @@ import { Toasts } from './components/ui'
 import { Cash } from './pages/Cash'
 import { Goals } from './pages/Goals'
 import { History } from './pages/History'
-import { Investments } from './pages/Investments'
+import { Holdings } from './pages/Holdings'
 import { Overview } from './pages/Overview'
 import { Settings } from './pages/Settings'
+import { Spending } from './pages/Spending'
 import { Welcome } from './pages/Welcome'
 
-const PAGES = { overview: Overview, investments: Investments, cash: Cash, goals: Goals, history: History, settings: Settings }
+const PAGES = { overview: Overview, holdings: Holdings, cash: Cash, spending: Spending, goals: Goals, history: History, settings: Settings }
 
 export function App() {
   const status = useApp((s) => s.status)
@@ -65,7 +66,7 @@ export function App() {
     return (
       <div className="welcome">
         <div className="welcome-inner">
-          <h1 style={{ fontSize: 28 }}>Nest Egg couldn’t open your data</h1>
+          <h1 style={{ fontSize: 28 }}>Moneta couldn’t open your data</h1>
           <p className="lead">{loadError}</p>
           <p className="muted">
             Your data file may be damaged or locked by another program. Daily backups are kept in the “backups” folder next to it.

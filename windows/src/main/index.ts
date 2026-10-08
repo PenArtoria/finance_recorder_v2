@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import type { FileFilter } from '@shared/types'
 import { fetchFx, fetchQuotes, searchSymbols } from './quotes'
-import { dataInfo, hasDataFileIn, moveDataTo, primeWatch, readData, watchData, writeData } from './storage'
+import { dataInfo, hasDataFileIn, migrateFromNestEgg, moveDataTo, primeWatch, readData, watchData, writeData } from './storage'
 
 const TITLEBAR_HEIGHT = 44
 const titleBarColors = (dark: boolean) =>
@@ -21,7 +21,7 @@ function createWindow() {
     minWidth: 980,
     minHeight: 640,
     show: false,
-    title: 'Nest Egg',
+    title: 'Moneta',
     backgroundColor: dark ? '#262624' : '#FAF9F5',
     titleBarStyle: 'hidden',
     titleBarOverlay: titleBarColors(dark),
@@ -82,7 +82,7 @@ ipcMain.handle('data:open-folder', () => shell.openPath(dataInfo().dir))
 ipcMain.handle('data:choose-folder', async () => {
   if (!win) return null
   const pick = await dialog.showOpenDialog(win, {
-    title: 'Choose a folder for your Nest Egg data',
+    title: 'Choose a folder for your Moneta data',
     properties: ['openDirectory', 'createDirectory']
   })
   if (pick.canceled || !pick.filePaths[0]) return null
@@ -94,7 +94,7 @@ ipcMain.handle('data:choose-folder', async () => {
     const answer = await dialog.showMessageBox(win, {
       type: 'question',
       title: 'Data file found',
-      message: 'This folder already has a Nest Egg data file.',
+      message: 'This folder already has a Moneta data file.',
       detail:
         'Use the file in that folder (for example one synced from another computer), or replace it with the data on this computer?',
       buttons: ['Use the file in that folder', 'Replace it with this computer’s data', 'Cancel'],
@@ -167,7 +167,9 @@ if (!gotLock) {
     }
   })
 
+  migrateFromNestEgg()
   app.whenReady().then(() => {
+    // Kept from the Nest Egg days so the new installer upgrades the old one in place.
     app.setAppUserModelId('com.nestegg.app')
     createWindow()
     startWatching()

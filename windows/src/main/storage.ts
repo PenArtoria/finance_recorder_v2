@@ -1,13 +1,15 @@
 import { app } from 'electron'
-import { promises as fs, watchFile, unwatchFile, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { promises as fs, watchFile, unwatchFile, existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, cpSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DataInfo } from '@shared/types'
 
-// Everything lives in one JSON file. By default it sits in %APPDATA%\Nest Egg,
+// Everything lives in one JSON file. By default it sits in %APPDATA%\Moneta,
 // but the user can move it to any folder (for example OneDrive or iCloud Drive)
 // so it is backed up and can be shared with another computer.
 
-const DATA_FILE = 'nest-egg-data.json'
+const DATA_FILE = 'moneta-data.json'
+/** Name used while the app was called Nest Egg. */
+const LEGACY_FILE = 'nest-egg-data.json'
 const BACKUP_DIR = 'backups'
 const BACKUPS_KEPT = 30
 
@@ -74,11 +76,11 @@ async function backupOncePerDay(dir: string, file: string) {
   if (!existsSync(file)) return
   const backups = join(dir, BACKUP_DIR)
   const today = new Date().toISOString().slice(0, 10)
-  const target = join(backups, `nest-egg-${today}.json`)
+  const target = join(backups, `moneta-${today}.json`)
   if (existsSync(target)) return
   await fs.mkdir(backups, { recursive: true })
   await fs.copyFile(file, target)
-  const old = (await fs.readdir(backups)).filter((f) => f.startsWith('nest-egg-')).sort()
+  const old = (await fs.readdir(backups)).filter((f) => f.startsWith('moneta-')).sort()
   for (const f of old.slice(0, Math.max(0, old.length - BACKUPS_KEPT))) {
     await fs.unlink(join(backups, f)).catch(() => {})
   }
@@ -113,7 +115,38 @@ export async function moveDataTo(dir: string, useExisting: boolean): Promise<Dat
 }
 
 export function hasDataFileIn(dir: string): boolean {
+  adoptLegacyFile(dir)
   return existsSync(join(dir, DATA_FILE))
+}
+
+/** Copies a Nest Egg data file in `dir` to the new name. The old file is left untouched. */
+function adoptLegacyFile(dir: string) {
+  const legacy = join(dir, LEGACY_FILE)
+  const current = join(dir, DATA_FILE)
+  if (!existsSync(current) && existsSync(legacy)) copyFileSync(legacy, current)
+}
+
+/**
+ * The app was renamed from Nest Egg to Moneta, which moves its folder from
+ * %APPDATA%\Nest Egg to %APPDATA%\Moneta. On first start, copy the settings,
+ * data and backups across. The old folder stays as it was, as a safety copy.
+ */
+export function migrateFromNestEgg() {
+  try {
+    const newDir = app.getPath('userData')
+    const oldDir = join(app.getPath('appData'), 'Nest Egg')
+    const fresh = !existsSync(join(newDir, 'config.json')) && !existsSync(join(newDir, DATA_FILE))
+    if (fresh && existsSync(oldDir)) {
+      mkdirSync(newDir, { recursive: true })
+      if (existsSync(join(oldDir, 'config.json'))) copyFileSync(join(oldDir, 'config.json'), join(newDir, 'config.json'))
+      if (existsSync(join(oldDir, LEGACY_FILE))) copyFileSync(join(oldDir, LEGACY_FILE), join(newDir, DATA_FILE))
+      if (existsSync(join(oldDir, BACKUP_DIR))) cpSync(join(oldDir, BACKUP_DIR), join(newDir, BACKUP_DIR), { recursive: true })
+    }
+    // A data folder chosen by the user (e.g. OneDrive) may still hold the old file name.
+    adoptLegacyFile(dataDir())
+  } catch (err) {
+    console.error('Could not copy data from Nest Egg', err)
+  }
 }
 
 let watched: string | null = null

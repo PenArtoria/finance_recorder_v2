@@ -56,7 +56,7 @@ export function CurrencySelect({ value, onChange, id }: { value: string; onChang
       onClick={() => pick(c)}
     >
       <span className="code">{c}</span>
-      <span>{currencyName(c)}</span>
+      <span className="name">{currencyName(c)}</span>
       {c === value && <span className="meta">Selected</span>}
     </button>
   )

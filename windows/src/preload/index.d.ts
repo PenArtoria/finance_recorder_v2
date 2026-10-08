@@ -1,6 +1,6 @@
 import type { AppData, DataInfo, FileFilter, FxTable, LoadResult, QuoteResult, SymbolMatch } from '../shared/types'
 
-export interface NestEggApi {
+export interface MonetaApi {
   loadData(): Promise<LoadResult>
   saveData(data: AppData): Promise<{ savedAt: number }>
   dataInfo(): Promise<DataInfo>
@@ -19,6 +19,6 @@ export interface NestEggApi {
 
 declare global {
   interface Window {
-    api: NestEggApi
+    api: MonetaApi
   }
 }

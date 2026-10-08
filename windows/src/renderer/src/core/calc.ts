@@ -9,7 +9,9 @@ import type {
   Snapshot,
   SnapshotTotals
 } from '@shared/types'
+import { linkedAccount } from './cash'
 import { convert, type Rates } from './money'
+import { isBalance, isUnits, isValued } from './trades'
 
 export const CATEGORIES: Category[] = ['equities', 'crypto', 'cash', 'other']
 
@@ -17,7 +19,7 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   equities: 'Stocks & funds',
   crypto: 'Crypto',
   cash: 'Cash',
-  other: 'Other'
+  other: 'Other assets'
 }
 
 export const CATEGORY_OF: Record<AssetType, Category> = {
@@ -25,7 +27,11 @@ export const CATEGORY_OF: Record<AssetType, Category> = {
   etf: 'equities',
   fund: 'equities',
   crypto: 'crypto',
-  bond: 'other',
+  bond: 'equities',
+  cash: 'cash',
+  deposit: 'cash',
+  pension: 'other',
+  property: 'other',
   other: 'other'
 }
 
@@ -35,6 +41,10 @@ export const TYPE_LABEL: Record<AssetType, string> = {
   fund: 'Fund',
   crypto: 'Crypto',
   bond: 'Bond',
+  cash: 'Bank account',
+  deposit: 'Fixed deposit',
+  pension: 'Pension',
+  property: 'Property',
   other: 'Other'
 }
 
@@ -89,9 +99,11 @@ export interface HoldingRow {
   value: number | null
   dayChange: number | null
   dayPct: number | null
+  /** Cost basis in the base currency, for the units it covers. */
   cost: number | null
   pnl: number | null
   pnlPct: number | null
+  /** Share of all investments (unit-priced holdings only). */
   weight: number
   missingPrice: boolean
   missingFx: boolean
@@ -102,6 +114,18 @@ export interface BucketRow {
   value: number | null
   progress: number | null
   missingFx: boolean
+  /** The bank account the money sits in. Linked buckets are counted inside that account. */
+  account?: Holding
+}
+
+export interface AccountRow {
+  holding: Holding
+  /** Balance in the base currency. */
+  value: number | null
+  /** Amount assigned to buckets, in the account's currency. */
+  assigned: number
+  unassigned: number
+  buckets: CashBucket[]
 }
 
 export interface Portfolio {
@@ -109,6 +133,7 @@ export interface Portfolio {
   rates: Rates
   holdings: HoldingRow[]
   buckets: BucketRow[]
+  accounts: AccountRow[]
   totals: SnapshotTotals & { investments: number }
   dayChange: number
   dayPct: number | null
@@ -137,7 +162,9 @@ export function computePortfolio(data: AppData): Portfolio {
     let price: number | null = null
     let priceCurrency = h.currency
     let previousClose: number | null = null
-    if (quote) {
+    if (isBalance(h.type)) {
+      price = 1
+    } else if (quote) {
       price = quote.price
       priceCurrency = quote.currency
       previousClose = quote.previousClose
@@ -157,12 +184,16 @@ export function computePortfolio(data: AppData): Portfolio {
       dc = convert((price - previousClose) * h.quantity, priceCurrency, base, rates)
       dayPct = price / previousClose - 1
     }
-    const cost = h.cost != null && h.cost > 0 ? convert(h.cost, h.currency, base, rates) : null
-    const pnl = value != null && cost != null ? value - cost : null
+    // Profit and loss only over the units whose price is known.
+    const costQty = isValued(h.type) ? 1 : h.costQuantity ?? (h.cost != null ? h.quantity : 0)
+    const cost = h.cost != null && h.cost > 0 && costQty > 0 && !isBalance(h.type) ? convert(h.cost, h.currency, base, rates) : null
+    const costedValue = price != null && cost != null ? convert(price * costQty, priceCurrency, base, rates) : null
+    const pnl = costedValue != null && cost != null ? costedValue - cost : null
     const pnlPct = pnl != null && cost ? pnl / cost : null
 
     if (value != null) {
       totals[category] += value
+      if (isUnits(h.type)) totals.investments += value
       if (dc != null) {
         dayChange += dc
         prevValue += value - dc
@@ -179,22 +210,32 @@ export function computePortfolio(data: AppData): Portfolio {
 
   const buckets: BucketRow[] = data.buckets.map((b) => {
     const value = convert(b.amount, b.currency, base, rates)
+    const account = linkedAccount(data, b)
     if (value == null) missingFx.add(b.currency)
-    else totals.cash += value
+    // A linked bucket is part of its account's balance, which is already counted.
+    else if (!account) totals.cash += value
     return {
       bucket: b,
       value,
       progress: b.target && b.target > 0 ? b.amount / b.target : null,
-      missingFx: value == null
+      missingFx: value == null,
+      account
     }
   })
 
-  totals.investments = totals.equities + totals.crypto + totals.other
-  totals.netWorth = totals.investments + totals.cash
-  for (const r of holdings) r.weight = r.value != null && totals.investments > 0 ? r.value / totals.investments : 0
+  const accounts: AccountRow[] = holdings
+    .filter((r) => isBalance(r.holding.type))
+    .map((r) => {
+      const linked = data.buckets.filter((b) => b.accountId === r.holding.id)
+      const assigned = linked.reduce((s, b) => s + (convert(b.amount, b.currency, r.holding.currency, rates) ?? 0), 0)
+      return { holding: r.holding, value: r.value, assigned, unassigned: r.holding.quantity - assigned, buckets: linked }
+    })
+
+  totals.netWorth = totals.equities + totals.crypto + totals.cash + totals.other
+  for (const r of holdings) r.weight = r.value != null && totals.investments > 0 && isUnits(r.holding.type) ? r.value / totals.investments : 0
 
   return {
-    base, rates, holdings, buckets, totals, dayChange,
+    base, rates, holdings, buckets, accounts, totals, dayChange,
     dayPct: prevValue > 0 ? dayChange / prevValue : null,
     missingPrice, missingFx: [...missingFx], oldestQuote
   }
@@ -228,7 +269,8 @@ export function buildSnapshot(p: Portfolio, month: string): Snapshot {
         name: r.bucket.name,
         amount: r.bucket.amount,
         currency: r.bucket.currency,
-        value: r.value as number
+        value: r.value as number,
+        ...(r.account ? { accountId: r.account.id } : {})
       })),
     fx: p.rates,
     source: 'auto'
@@ -343,6 +385,8 @@ export interface MonthChange {
   byCategory: Record<Category, number> | null
 }
 
+const subOf = (h: Holding) => (h.symbol ? h.name : TYPE_LABEL[h.type])
+
 export function previousSnapshot(data: AppData, now = new Date()): Snapshot | undefined {
   const current = monthKey(now)
   const older = data.snapshots.filter((s) => s.month < current)
@@ -397,22 +441,23 @@ export function monthChange(data: AppData, p: Portfolio, now = new Date()): Mont
     prevH.delete(h.id)
     const v1 = r.value
     if (!old) {
-      items.push({ key: h.id, label: h.symbol || h.name, sublabel: h.name, kind: 'holding', delta: v1, market: 0, flow: v1, isNew: true })
+      items.push({ key: h.id, label: h.symbol || h.name, sublabel: subOf(h), kind: 'holding', delta: v1, market: 0, flow: v1, isNew: true })
       continue
     }
     const v0 = old.value * f
     const unit1 = h.quantity !== 0 ? v1 / h.quantity : 0
     const flow = (h.quantity - old.quantity) * unit1
-    items.push({ key: h.id, label: h.symbol || h.name, sublabel: h.name, kind: 'holding', delta: v1 - v0, market: v1 - v0 - flow, flow })
+    items.push({ key: h.id, label: h.symbol || h.name, sublabel: subOf(h), kind: 'holding', delta: v1 - v0, market: v1 - v0 - flow, flow })
   }
   for (const old of prevH.values()) {
     const v0 = old.value * f
-    items.push({ key: old.id, label: old.symbol || old.name, sublabel: old.name, kind: 'holding', delta: -v0, market: 0, flow: -v0, removed: true })
+    items.push({ key: old.id, label: old.symbol || old.name, sublabel: old.symbol ? old.name : TYPE_LABEL[old.type], kind: 'holding', delta: -v0, market: 0, flow: -v0, removed: true })
   }
 
-  const prevB = new Map(prev.buckets.map((b) => [b.id, b]))
+  // Buckets inside a bank account are already part of that account's change.
+  const prevB = new Map(prev.buckets.filter((b) => !b.accountId).map((b) => [b.id, b]))
   for (const r of p.buckets) {
-    if (r.value == null) continue
+    if (r.value == null || r.account) continue
     const b = r.bucket
     const old = prevB.get(b.id)
     prevB.delete(b.id)

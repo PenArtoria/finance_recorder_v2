@@ -18,7 +18,7 @@ export function Welcome() {
   const [name, setName] = useState(settings.name)
   const [importing, setImporting] = useState(false)
 
-  const start = (page: 'overview' | 'investments' | 'history') => {
+  const start = (page: 'overview' | 'holdings' | 'history') => {
     mutate((d) => {
       d.onboarded = true
       d.settings.baseCurrency = currency
@@ -34,7 +34,7 @@ export function Welcome() {
         <div>
           <h1>Your money, month by month.</h1>
           <p className="lead">
-            Track your stocks, ETFs, crypto and cash in one place. Prices update by themselves, every month is saved for you, and your goals show how close you are.
+            Track your stocks, ETFs, crypto, bank accounts and daily spending in one place. Prices update by themselves, every month is saved for you, and your goals show how close you are.
           </p>
         </div>
         <div className="form-row">
@@ -46,7 +46,7 @@ export function Welcome() {
           </Field>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <button className="choice" onClick={() => start('investments')}>
+          <button className="choice" onClick={() => start('holdings')}>
             <div className="ic">
               <PencilLine size={19} />
             </div>
@@ -79,7 +79,7 @@ export function Welcome() {
             </div>
             <div>
               <b>Look around with an example</b>
-              <span>A made-up portfolio with VWRA, VALL, RKLB and Bitcoin at live prices. Clear it when you’re ready.</span>
+              <span>A made-up portfolio with VWRA, VALL, RKLB and Bitcoin at live prices, plus bank accounts, buckets and a month of spending. Clear it when you’re ready.</span>
             </div>
           </button>
         </div>
