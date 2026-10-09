@@ -1,7 +1,7 @@
 {
   "name": "moneta",
   "productName": "Moneta",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Personal net worth, spending, cash bucket and goal tracker",
   "author": "Moneta contributors",
   "private": true,
