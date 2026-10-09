@@ -1,5 +1,6 @@
-import type { AppData, CashBucket, Expense, Goal, Holding, Snapshot, Trade } from '@shared/types'
+import type { AppData, CashBucket, CreditCard, Expense, Goal, Holding, Snapshot, Trade } from '@shared/types'
 import { addMonths, monthKey } from './calc'
+import { statementsOf } from './cards'
 import { convert } from './money'
 import { emptyData } from './data'
 import { daysInMonth, SPEND_CATEGORIES } from './spending'
@@ -120,6 +121,36 @@ export function exampleData(): AppData {
     }
   }
 
+  // A credit card paid from HSBC: some day-to-day spending goes on it, plus online orders in US dollars.
+  const card: CreditCard = {
+    id: 'ex-card', name: 'Visa Signature', issuer: 'HSBC', currency: 'HKD', limit: 30000,
+    closingDay: 15, dueDay: 10, dueMonths: 1, payFromId: 'ex-hsbc', autoPay: true, payments: [], color: 6, createdAt: now
+  }
+  for (const e of expenses) {
+    if (['shopping', 'fun', 'food'].includes(e.category) && rand() < 0.55) {
+      e.cardId = card.id
+      e.cardAmount = e.amount
+    }
+    e.usd = +(e.amount / RATES.HKD).toFixed(6)
+  }
+  for (const [i, month] of [addMonths(thisMonth, -1), thisMonth].entries()) {
+    const date = `${month}-0${3 + i * 2}`
+    if (date > today) continue
+    const usd = i ? 42.5 : 34.99
+    expenses.push({
+      id: `ex-e-online-${i}`, date, amount: usd, currency: 'USD', category: 'shopping', note: 'Online order',
+      source: { kind: 'bucket', id: 'ex-living' }, cardId: card.id, cardAmount: +(usd * RATES.HKD).toFixed(2), usd, createdAt: now
+    })
+  }
+  d.expenses = expenses
+  d.cards = [card]
+  // Bills whose pay day has passed were already paid by the bank.
+  for (const st of statementsOf(d, card, RATES)) {
+    if (st.status !== 'open' && st.due < today && st.remaining > 0) {
+      card.payments.push({ id: `ex-pay-${st.close}`, date: st.due, amount: st.remaining, fromAccountId: 'ex-hsbc', statement: st.close, auto: true, createdAt: now })
+    }
+  }
+
   // Ten months of history built from the same trades and a slowly growing cash pile.
   const snapshots: Snapshot[] = []
   for (let k = 1; k <= 10; k++) {
@@ -155,8 +186,10 @@ export function exampleData(): AppData {
 
   d.holdings = [...holdings, ...accounts]
   d.buckets = buckets
-  d.goals = goals
-  d.expenses = expenses
+  d.goals = [
+    ...goals,
+    { id: 'ex-g4', name: 'Own 100 VWRA', target: 100, currency: 'USD', deadline: addMonths(thisMonth, 3), source: { kind: 'units', id: 'ex-vwra' }, createdAt: now }
+  ]
   d.snapshots = snapshots.sort((a, b) => a.month.localeCompare(b.month))
   return d
 }

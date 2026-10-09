@@ -7,12 +7,13 @@ import { useFmt, usePortfolio } from '@/hooks'
 import { useApp } from '@/store'
 import { GoalDialog } from '@/components/GoalDialog'
 import { Card, Empty, PageHead, Progress } from '@/components/ui'
-import { ExampleBanner, GoalStatusPill } from './shared'
+import { ExampleBanner, GoalStatusPill, useGoalFormat } from './shared'
 
 export function Goals() {
   const data = useApp((s) => s.data)
   const p = usePortfolio()
   const fmt = useFmt()
+  const gv = useGoalFormat()
   const [editing, setEditing] = useState<Goal | null>(null)
   const [adding, setAdding] = useState(false)
   const goals = useMemo(() => data.goals.map((g) => goalProgress(g, data, p)), [data, p])
@@ -44,7 +45,6 @@ export function Goals() {
       ) : (
         <div className="grid-2 even">
           {goals.map((g) => {
-            const ccy = g.goal.currency
             return (
               <Card key={g.goal.id} className="goal-card">
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -61,15 +61,15 @@ export function Goals() {
                   </button>
                 </div>
                 <div className="goal-figures">
-                  <span className="big num">{fmt.money(g.current, { currency: ccy })}</span>
-                  <span className="muted">of {fmt.money(g.goal.target, { currency: ccy })}</span>
+                  <span className="big num">{gv(g, g.current)}</span>
+                  <span className="muted">of {gv(g, g.goal.target)}</span>
                   <span className="faint" style={{ marginLeft: 'auto' }}>{formatPct(Math.min(g.pct, 9.99), false, 0)}</span>
                 </div>
                 <Progress value={g.pct} tone={g.status === 'reached' ? 'good' : undefined} />
                 <div className="goal-meta">
                   <div>
                     <div className="k">Left to go</div>
-                    <div className="v num">{g.remaining != null ? fmt.money(g.remaining, { currency: ccy }) : '—'}</div>
+                    <div className="v num">{gv(g, g.remaining)}</div>
                   </div>
                   <div>
                     <div className="k">{g.goal.deadline ? 'Needed per month' : 'Months to go'}</div>
@@ -78,7 +78,7 @@ export function Goals() {
                         ? 'Done'
                         : g.goal.deadline
                           ? g.perMonth != null
-                            ? fmt.money(g.perMonth, { currency: ccy })
+                            ? gv(g, g.perMonth)
                             : '—'
                           : g.projected
                             ? `About ${Math.max(1, monthsBetweenNow(g.projected))}`
@@ -88,10 +88,13 @@ export function Goals() {
                   <div>
                     <div className="k">Your pace</div>
                     <div className="v num">
-                      {g.pace != null ? `${fmt.money(g.pace, { currency: ccy, sign: true })}/mo` : g.goal.source.kind === 'manual' ? 'Updated by hand' : 'Needs a past month'}
+                      {g.pace != null ? `${gv(g, g.pace, true)}/mo` : g.goal.source.kind === 'manual' ? 'Updated by hand' : 'Needs a past month'}
                     </div>
                   </div>
                 </div>
+                {g.units && g.costToFinish != null && g.status !== 'reached' && (
+                  <div className="sub-line">The missing units cost about {fmt.money(g.costToFinish)} at today’s price.</div>
+                )}
                 {g.status !== 'reached' && g.projected && (
                   <div className="sub-line">At your recent pace you’ll get there around {monthLabel(g.projected, 'long')}.</div>
                 )}

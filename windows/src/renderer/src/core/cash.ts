@@ -1,4 +1,5 @@
 import type { AppData, CashBucket, Holding, MoneySource } from '@shared/types'
+import { reservedFor } from './cards'
 import { convert, type Rates } from './money'
 import { isBalance } from './trades'
 
@@ -62,6 +63,13 @@ export function moveMoney(draft: AppData, src: MoneySource, delta: number, rates
   b.amount = fix(b.amount + delta)
   const a = linkedAccount(draft, b)
   if (a) a.quantity = fix(a.quantity + (convert(delta, b.currency, a.currency, rates) ?? delta))
+}
+
+/** Money in an account not in a bucket and not set aside for a card bill, in its currency. */
+export function unassignedIn(data: AppData, accountId: string, rates: Rates): number {
+  const a = data.holdings.find((h) => h.id === accountId)
+  if (!a) return 0
+  return a.quantity - assignedTo(data, accountId, rates) - reservedFor(data, accountId, rates)
 }
 
 /** How much of each account is assigned to buckets, in the account's currency. */

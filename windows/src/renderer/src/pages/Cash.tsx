@@ -29,8 +29,10 @@ export function Cash() {
 
   // Unassigned money across all accounts, in the base currency.
   const unassigned = p.accounts.reduce((s, a) => s + (convert(a.unassigned, a.holding.currency, fmt.base, p.rates) ?? 0), 0)
+  const reserved = p.accounts.reduce((s, a) => s + (convert(a.reserved, a.holding.currency, fmt.base, p.rates) ?? 0), 0)
   const slices = [
     ...p.buckets.map((r) => ({ key: r.bucket.id, label: r.bucket.name, value: r.value ?? 0, color: colors.series[r.bucket.color % 8] })),
+    ...(reserved > 0.005 ? [{ key: 'cards', label: 'For card bills', value: reserved, color: colors.ink3 }] : []),
     ...(unassigned > 0.005 ? [{ key: 'unassigned', label: 'Not in a bucket', value: unassigned, color: colors.none }] : [])
   ]
 
@@ -107,13 +109,15 @@ export function Cash() {
                           {a.buckets.map((b) => (
                             <span key={b.id} style={{ flexGrow: Math.max(0, b.amount), background: `var(--s${(b.color % 8) + 1})` }} />
                           ))}
+                          {a.reserved > 0 && <span className="reserved" style={{ flexGrow: a.reserved }} />}
                           {a.unassigned > 0 && <span style={{ flexGrow: a.unassigned, background: 'var(--s-none)' }} />}
                         </div>
                         <div className="sub-line">
                           {a.buckets.length ? `${a.buckets.length} bucket${a.buckets.length === 1 ? '' : 's'} · ` : ''}
+                          {a.reserved > 0.005 ? `${fmt.money(a.reserved, { currency: a.holding.currency })} for card bills · ` : ''}
                           <span className={a.unassigned < -0.005 ? 'bad' : undefined}>
                             {a.unassigned < -0.005
-                              ? `buckets are ${fmt.money(-a.unassigned, { currency: a.holding.currency })} over the balance`
+                              ? `${fmt.money(-a.unassigned, { currency: a.holding.currency })} more set aside than the balance`
                               : `${fmt.money(a.unassigned, { currency: a.holding.currency })} not in a bucket`}
                           </span>
                         </div>

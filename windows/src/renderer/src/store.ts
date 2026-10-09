@@ -1,7 +1,10 @@
 import { create } from 'zustand'
 import type { AppData, DataInfo, QuoteError } from '@shared/types'
-import { computePortfolio, withLiveSnapshot } from './core/calc'
-import { emptyData, normalizeData } from './core/data'
+import { runAutoPay } from './core/cards'
+import { computePortfolio, ratesOf, withLiveSnapshot } from './core/calc'
+import { emptyData, normalizeData, uid } from './core/data'
+import { formatMoney } from './core/money'
+import { dateLabel } from './core/trades'
 
 const api = window.api
 
@@ -33,6 +36,8 @@ interface State {
   replace(data: AppData): void
   reloadFromDisk(): Promise<void>
   refreshPrices(opts?: { silent?: boolean; forceFx?: boolean }): Promise<void>
+  /** Pays card bills that reached their pay day, for cards set to pay automatically. */
+  autoPayCards(): void
   toast(text: string, kind?: Toast['kind']): void
   dismissToast(id: number): void
   setInfo(info: DataInfo): void
@@ -80,6 +85,7 @@ export const useApp = create<State>((set, get) => {
         const res = await api.loadData()
         const data = res.data ? normalizeData(res.data) : emptyData()
         set({ data: finalize(data), info: res.info, status: 'ready' })
+        get().autoPayCards()
         api.onExternalChange(() => {
           // Ignore the echo of our own save; reload when another device changed the file.
           if (saveTimer || Date.now() - lastSaveAt < 4000) return
@@ -151,11 +157,23 @@ export const useApp = create<State>((set, get) => {
       })
 
       set({ prices: { loading: false, lastRun: Date.now(), errors, fxError, offline } })
+      get().autoPayCards()
       if (!opts.silent) {
         if (offline) get().toast('Prices could not be updated. Check your internet connection.', 'error')
         else if (errors.length) get().toast(`No price for ${errors.map((e) => e.symbol).join(', ')}.`, 'error')
         else get().toast('Prices updated.', 'success')
       }
+    },
+
+    autoPayCards() {
+      const { data } = get()
+      if (!data.cards.some((c) => c.autoPay && c.payFromId)) return
+      const draft = structuredClone(data)
+      const done = runAutoPay(draft, ratesOf(draft), () => uid('p'))
+      if (!done.length) return
+      set({ data: finalize(draft) })
+      scheduleSave()
+      for (const p of done) get().toast(`${p.card}: ${formatMoney(p.amount, p.currency)} paid automatically on ${dateLabel(p.date, false)}.`, 'info')
     },
 
     toast(text, kind = 'info') {

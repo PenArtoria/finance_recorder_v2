@@ -5,6 +5,7 @@ import { useNav } from './nav'
 import { useApp } from './store'
 import { Sidebar } from './components/Sidebar'
 import { Toasts } from './components/ui'
+import { Cards } from './pages/Cards'
 import { Cash } from './pages/Cash'
 import { Goals } from './pages/Goals'
 import { History } from './pages/History'
@@ -14,7 +15,7 @@ import { Settings } from './pages/Settings'
 import { Spending } from './pages/Spending'
 import { Welcome } from './pages/Welcome'
 
-const PAGES = { overview: Overview, holdings: Holdings, cash: Cash, spending: Spending, goals: Goals, history: History, settings: Settings }
+const PAGES = { overview: Overview, holdings: Holdings, cash: Cash, spending: Spending, cards: Cards, goals: Goals, history: History, settings: Settings }
 
 export function App() {
   const status = useApp((s) => s.status)

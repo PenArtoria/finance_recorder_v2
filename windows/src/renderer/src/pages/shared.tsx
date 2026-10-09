@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { CheckCircle2, Circle, Clock, TrendingDown, TrendingUp } from 'lucide-react'
-import type { GoalStatus } from '@/core/calc'
+import type { GoalProgress, GoalStatus } from '@/core/calc'
+import { formatQty } from '@/core/money'
+import { useFmt } from '@/hooks'
 import { emptyData } from '@/core/data'
 import { useApp } from '@/store'
 import { ConfirmDialog } from '@/components/ui'
@@ -45,6 +47,18 @@ const STATUS: Record<GoalStatus, { label: string; cls: string; icon: typeof Cloc
   behind: { label: 'Behind', cls: 'warn', icon: TrendingDown },
   open: { label: 'No deadline', cls: '', icon: Circle },
   unknown: { label: 'Building history', cls: '', icon: Clock }
+}
+
+/** Formats a goal amount: units for unit goals, money otherwise. */
+export function useGoalFormat() {
+  const fmt = useFmt()
+  return (g: GoalProgress, v: number | null | undefined, sign = false) => {
+    if (v == null || !Number.isFinite(v)) return '—'
+    if (!g.units) return fmt.money(v, { currency: g.goal.currency, sign })
+    if (fmt.hide) return '•••• units'
+    const s = sign ? (v > 0 ? '+' : v < 0 ? '−' : '') : ''
+    return `${s}${formatQty(Math.abs(v))} units`
+  }
 }
 
 export function GoalStatusPill({ status }: { status: GoalStatus }) {

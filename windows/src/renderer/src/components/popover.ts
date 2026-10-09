@@ -15,10 +15,11 @@ export function useAnchoredStyle(anchor: RefObject<HTMLElement | null>, open: bo
       const below = window.innerHeight - r.bottom - 16
       const above = r.top - 16
       const up = below < Math.min(maxHeight, 220) && above > below
+      const width = Math.max(r.width, 300)
       setStyle({
         position: 'fixed',
-        left: r.left,
-        width: r.width,
+        left: Math.max(12, Math.min(r.left, window.innerWidth - width - 12)),
+        width,
         maxHeight: Math.max(120, Math.min(maxHeight, up ? above : below)),
         top: up ? 'auto' : r.bottom + 6,
         bottom: up ? window.innerHeight - r.top + 6 : 'auto'

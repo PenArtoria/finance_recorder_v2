@@ -1,4 +1,4 @@
-import { CalendarDays, Eye, EyeOff, Goal, History, LayoutDashboard, LineChart, RefreshCw, Settings, Wallet } from 'lucide-react'
+import { CalendarDays, CreditCard, Eye, EyeOff, Goal, History, LayoutDashboard, LineChart, RefreshCw, Settings, Wallet } from 'lucide-react'
 import { timeAgo, useNow, usePortfolio } from '@/hooks'
 import { useNav, type Page } from '@/nav'
 import { useApp } from '@/store'
@@ -9,6 +9,7 @@ const NAV: { page: Page; label: string; icon: typeof Wallet }[] = [
   { page: 'holdings', label: 'Holdings', icon: LineChart },
   { page: 'cash', label: 'Cash buckets', icon: Wallet },
   { page: 'spending', label: 'Spending', icon: CalendarDays },
+  { page: 'cards', label: 'Credit cards', icon: CreditCard },
   { page: 'goals', label: 'Goals', icon: Goal },
   { page: 'history', label: 'Monthly history', icon: History }
 ]

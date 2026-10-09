@@ -269,7 +269,7 @@ export function Holdings() {
                     <tr>
                       <th>Account</th>
                       <th className="r">Balance</th>
-                      <th className="r">In buckets</th>
+                      <th className="r">Set aside</th>
                       <th className="r">Unassigned</th>
                       <th className="r">Value ({fmt.base})</th>
                     </tr>
@@ -297,10 +297,11 @@ export function Holdings() {
                           <td className="r">
                             {a.buckets.length ? fmt.money(a.assigned, { currency: h.currency }) : <span className="faint">—</span>}
                             {a.buckets.length > 0 && <div className="sub-line">{a.buckets.length} bucket{a.buckets.length === 1 ? '' : 's'}</div>}
+                            {a.reserved > 0.005 && <div className="sub-line">+ {fmt.money(a.reserved, { currency: h.currency })} for card bills</div>}
                           </td>
                           <td className={`r ${a.unassigned < -0.005 ? 'bad' : ''}`}>
                             {fmt.money(a.unassigned, { currency: h.currency })}
-                            {a.unassigned < -0.005 && <div className="sub-line bad">Buckets exceed balance</div>}
+                            {a.unassigned < -0.005 && <div className="sub-line bad">More set aside than the balance</div>}
                           </td>
                           <td className="r" style={{ fontWeight: 600 }}>{fmt.money(a.value)}</td>
                         </tr>

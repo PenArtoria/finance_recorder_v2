@@ -1,6 +1,9 @@
 import type { AppData, Expense } from '@shared/types'
 import { moveMoney } from './cash'
 import { convert, type Rates } from './money'
+import { daysInMonth } from './trades'
+
+export { daysInMonth }
 
 export interface SpendCategory {
   key: string
@@ -24,10 +27,19 @@ export const SPEND_CATEGORIES: SpendCategory[] = [
 
 export const categoryLabel = (key: string) => SPEND_CATEGORIES.find((c) => c.key === key)?.label ?? 'Other'
 
-/** Takes the expense out of its source (sign 1) or puts it back (sign −1). */
+/**
+ * Takes the expense out of its source (sign 1) or puts it back (sign −1).
+ * A card charge only lowers the bucket's budget: the bank pays later, on the card's pay day.
+ */
 export function applyExpense(draft: AppData, e: Expense, sign: 1 | -1, rates: Rates) {
   if (!e.source) return
   const src = e.source
+  if (e.cardId) {
+    if (src.kind !== 'bucket') return
+    const b = draft.buckets.find((x) => x.id === src.id)
+    if (b) b.amount = +(b.amount - sign * (convert(e.amount, e.currency, b.currency, rates) ?? e.amount)).toFixed(8)
+    return
+  }
   const srcCcy =
     src.kind === 'bucket'
       ? draft.buckets.find((b) => b.id === src.id)?.currency
@@ -37,11 +49,28 @@ export function applyExpense(draft: AppData, e: Expense, sign: 1 | -1, rates: Ra
   moveMoney(draft, src, -sign * amount, rates)
 }
 
+/**
+ * Currencies you spend in most, most-used first: recent spending counts most,
+ * then your buckets, cards and main currency.
+ */
+export function frequentCurrencies(data: AppData, limit = 6): string[] {
+  const score = new Map<string, number>()
+  const add = (c: string | undefined, n: number) => c && score.set(c, (score.get(c) ?? 0) + n)
+  const cutoff = Date.now() - 120 * 86400000
+  for (const e of data.expenses) add(e.currency, e.createdAt >= cutoff ? 3 : 1)
+  for (const b of data.buckets) add(b.currency, 2)
+  for (const c of data.cards) add(c.currency, 2)
+  add(data.settings.baseCurrency, 1)
+  return [...score.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([c]) => c)
+}
+
 export function expensesIn(data: AppData, month: string): Expense[] {
   return data.expenses.filter((e) => e.date.startsWith(month))
 }
 
+/** The expense in the main currency, at the exchange rate of the day it was entered. */
 export function inBase(e: Expense, base: string, rates: Rates): number {
+  if (e.usd != null) return base === 'USD' ? e.usd : convert(e.usd, 'USD', base, rates) ?? 0
   return convert(e.amount, e.currency, base, rates) ?? 0
 }
 
@@ -64,7 +93,3 @@ export function byCategory(expenses: Expense[], base: string, rates: Rates): { k
     .sort((a, b) => b.total - a.total)
 }
 
-export function daysInMonth(month: string): number {
-  const [y, m] = month.split('-').map(Number)
-  return new Date(y, m, 0).getDate()
-}

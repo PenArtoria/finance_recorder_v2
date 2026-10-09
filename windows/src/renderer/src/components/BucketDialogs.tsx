@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, Trash2 } from 'lucide-react'
 import type { CashBucket } from '@shared/types'
-import { assignedTo, bankAccounts, linkedAccount, moveMoney } from '@/core/cash'
+import { bankAccounts, linkedAccount, moveMoney, unassignedIn } from '@/core/cash'
 import { uid } from '@/core/data'
 import { convert, formatMoney, symbolFor } from '@/core/money'
 import { ratesOf } from '@/core/calc'
@@ -32,7 +32,7 @@ export function BucketDialog({ bucket, onClose }: { bucket?: CashBucket; onClose
 
   // Money in the account not yet given to any bucket (this bucket's current share counts as free).
   const free = account
-    ? account.quantity - assignedTo(data, account.id, rates) + (bucket && bucket.accountId === account.id ? bucket.amount : 0)
+    ? unassignedIn(data, account.id, rates) + (bucket && bucket.accountId === account.id ? bucket.amount : 0)
     : null
   const valid = name.trim().length > 0 && amount != null
 
@@ -198,7 +198,7 @@ export function AdjustDialog({ bucket, onClose }: { bucket: CashBucket; onClose:
   const touchesBank = account ? (side === 'add' ? newMoney : leftBank) : false
   const delta = (side === 'add' ? 1 : -1) * (amount ?? 0)
   const after = bucket.amount + delta
-  const free = account ? account.quantity - assignedTo(data, account.id, rates) : null
+  const free = account ? unassignedIn(data, account.id, rates) : null
 
   const save = () => {
     if (!amount) return
