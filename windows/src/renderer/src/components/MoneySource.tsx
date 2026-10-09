@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
-import { bankAccounts, linkedAccount, sourceKey } from '@/core/cash'
+import { bankAccounts, linkedAccount, sourceKey, unassignedIn } from '@/core/cash'
 import { ratesOf } from '@/core/calc'
-import { assignedTo } from '@/core/cash'
 import { formatMoney } from '@/core/money'
 import { useApp } from '@/store'
 
@@ -45,7 +44,7 @@ export function MoneySourceSelect({
         <optgroup label="Bank accounts, unassigned money">
           {accounts.map((a) => (
             <option key={a.id} value={sourceKey({ kind: 'account', id: a.id })}>
-              {a.name} ({money(a.quantity - assignedTo(data, a.id, rates), a.currency)} unassigned)
+              {a.name} ({money(unassignedIn(data, a.id, rates), a.currency)} unassigned)
             </option>
           ))}
         </optgroup>

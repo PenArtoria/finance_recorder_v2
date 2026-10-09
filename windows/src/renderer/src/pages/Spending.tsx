@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus, ReceiptText } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CreditCard, Plus, ReceiptText } from 'lucide-react'
 import type { Expense } from '@shared/types'
 import { addMonths, monthKey, monthLabel } from '@/core/calc'
 import { sourceLabel } from '@/core/cash'
@@ -239,12 +239,19 @@ function ExpenseRow({ e, onClick, compact = false }: { e: Expense; onClick: () =
     <button className={`exp-row ${compact ? 'compact' : ''}`} onClick={onClick}>
       <span className="cat-ic">
         <CategoryIcon category={e.category} size={15} />
+        {e.cardId && (
+          <span className="card-badge" title="Paid by card">
+            <CreditCard size={9} strokeWidth={2.4} />
+          </span>
+        )}
       </span>
       <span className="grow">
         <span className="title">{e.note || categoryLabel(e.category)}</span>
         <span className="sub-line">
           {e.note ? `${categoryLabel(e.category)} · ` : ''}
-          {sourceLabel(data, e.source)}
+          {e.cardId
+            ? `${data.cards.find((c) => c.id === e.cardId)?.name ?? 'Card'}${e.source ? ` · ${sourceLabel(data, e.source)}` : ''}`
+            : sourceLabel(data, e.source)}
         </span>
       </span>
       <span className="num amt">

@@ -4,8 +4,21 @@ import { allCurrencies, currencyName, POPULAR_CURRENCIES } from '@/core/currenci
 import { useApp } from '@/store'
 import { useAnchoredStyle } from './popover'
 
-/** Searchable picker over every supported currency. Type a code ("hkd") or a name ("yen"). */
-export function CurrencySelect({ value, onChange, id }: { value: string; onChange: (code: string) => void; id?: string }) {
+/**
+ * Searchable picker over every supported currency. Type a code ("jpy") or a name ("yen").
+ * `suggested` (e.g. the currencies you spend in most) is listed first.
+ */
+export function CurrencySelect({
+  value,
+  onChange,
+  id,
+  suggested
+}: {
+  value: string
+  onChange: (code: string) => void
+  id?: string
+  suggested?: string[]
+}) {
   const fxCodes = useApp((s) => s.data.fx?.rates)
   const all = useMemo(() => allCurrencies(Object.keys(fxCodes ?? {})), [fxCodes])
   const [open, setOpen] = useState(false)
@@ -18,13 +31,13 @@ export function CurrencySelect({ value, onChange, id }: { value: string; onChang
   const items = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) {
-      const popular = POPULAR_CURRENCIES.filter((c) => all.includes(c))
+      const popular = (suggested?.length ? suggested : POPULAR_CURRENCIES).filter((c) => all.includes(c))
       return { popular, rest: all.filter((c) => !popular.includes(c)) }
     }
     const match = all.filter((c) => c.toLowerCase().includes(q) || currencyName(c).toLowerCase().includes(q))
     match.sort((a, b) => Number(!a.toLowerCase().startsWith(q)) - Number(!b.toLowerCase().startsWith(q)))
     return { popular: [] as string[], rest: match }
-  }, [all, query])
+  }, [all, query, suggested])
   const flat = [...items.popular, ...items.rest]
 
   useEffect(() => {
@@ -102,8 +115,9 @@ export function CurrencySelect({ value, onChange, id }: { value: string; onChang
         createPortal(
           <div className="combo-list" ref={listRef} role="listbox" style={listStyle}>
             {flat.length === 0 && <div className="combo-empty">No currency matches “{query}”.</div>}
+            {items.popular.length > 0 && <div className="combo-label">{suggested?.length ? 'You use most' : 'Popular'}</div>}
             {items.popular.map((c, i) => row(c, i))}
-            {items.popular.length > 0 && <div className="combo-sep" />}
+            {items.popular.length > 0 && <div className="combo-label">All currencies</div>}
             {items.rest.map((c, i) => row(c, i + items.popular.length))}
           </div>,
           document.body

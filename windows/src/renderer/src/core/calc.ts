@@ -3,12 +3,14 @@ import type {
   AssetType,
   CashBucket,
   Category,
+  CreditCard,
   Goal,
   Holding,
   Quote,
   Snapshot,
   SnapshotTotals
 } from '@shared/types'
+import { owedOn, reservedFor } from './cards'
 import { linkedAccount } from './cash'
 import { convert, type Rates } from './money'
 import { isBalance, isUnits, isValued } from './trades'
@@ -124,8 +126,18 @@ export interface AccountRow {
   value: number | null
   /** Amount assigned to buckets, in the account's currency. */
   assigned: number
+  /** Card bills this account will pay, in its currency. */
+  reserved: number
   unassigned: number
   buckets: CashBucket[]
+}
+
+export interface CardRow {
+  card: CreditCard
+  /** Owed, in the card's currency. */
+  owed: number
+  /** Owed, in the base currency. */
+  value: number | null
 }
 
 export interface Portfolio {
@@ -134,7 +146,8 @@ export interface Portfolio {
   holdings: HoldingRow[]
   buckets: BucketRow[]
   accounts: AccountRow[]
-  totals: SnapshotTotals & { investments: number }
+  cards: CardRow[]
+  totals: SnapshotTotals & { investments: number; debt: number }
   dayChange: number
   dayPct: number | null
   missingPrice: string[]
@@ -152,7 +165,7 @@ export function computePortfolio(data: AppData): Portfolio {
   const rates = ratesOf(data)
   const missingPrice: string[] = []
   const missingFx = new Set<string>()
-  const totals = { equities: 0, crypto: 0, cash: 0, other: 0, netWorth: 0, investments: 0 }
+  const totals = { equities: 0, crypto: 0, cash: 0, other: 0, debt: 0, netWorth: 0, investments: 0 }
   let dayChange = 0
   let prevValue = 0
   let oldestQuote: number | null = null
@@ -228,14 +241,23 @@ export function computePortfolio(data: AppData): Portfolio {
     .map((r) => {
       const linked = data.buckets.filter((b) => b.accountId === r.holding.id)
       const assigned = linked.reduce((s, b) => s + (convert(b.amount, b.currency, r.holding.currency, rates) ?? 0), 0)
-      return { holding: r.holding, value: r.value, assigned, unassigned: r.holding.quantity - assigned, buckets: linked }
+      const reserved = reservedFor(data, r.holding.id, rates)
+      return { holding: r.holding, value: r.value, assigned, reserved, unassigned: r.holding.quantity - assigned - reserved, buckets: linked }
     })
 
-  totals.netWorth = totals.equities + totals.crypto + totals.cash + totals.other
+  const cards: CardRow[] = data.cards.map((card) => {
+    const owed = owedOn(data, card, rates)
+    const value = convert(owed, card.currency, base, rates)
+    if (value == null) missingFx.add(card.currency)
+    else totals.debt += value
+    return { card, owed, value }
+  })
+
+  totals.netWorth = totals.equities + totals.crypto + totals.cash + totals.other - totals.debt
   for (const r of holdings) r.weight = r.value != null && totals.investments > 0 && isUnits(r.holding.type) ? r.value / totals.investments : 0
 
   return {
-    base, rates, holdings, buckets, accounts, totals, dayChange,
+    base, rates, holdings, buckets, accounts, cards, totals, dayChange,
     dayPct: prevValue > 0 ? dayChange / prevValue : null,
     missingPrice, missingFx: [...missingFx], oldestQuote
   }
@@ -272,6 +294,9 @@ export function buildSnapshot(p: Portfolio, month: string): Snapshot {
         value: r.value as number,
         ...(r.account ? { accountId: r.account.id } : {})
       })),
+    cards: p.cards
+      .filter((r) => r.value != null)
+      .map((r) => ({ id: r.card.id, name: r.card.name, owed: r.owed, currency: r.card.currency, value: r.value as number })),
     fx: p.rates,
     source: 'auto'
   }
@@ -290,6 +315,7 @@ export function snapshotTotals(s: Snapshot, base: string, currentRates: Rates): 
     crypto: s.totals.crypto * f,
     cash: s.totals.cash * f,
     other: s.totals.other * f,
+    debt: (s.totals.debt ?? 0) * f,
     netWorth: s.totals.netWorth * f
   }
 }
@@ -332,7 +358,7 @@ export function history(data: AppData, p: Portfolio, now = new Date()): HistoryP
     .filter((s) => s.month !== current)
     .map((s) => {
       const totals = snapshotTotals(s, p.base, p.rates)
-      const split = totals.equities + totals.crypto + totals.cash + totals.other
+      const split = totals.equities + totals.crypto + totals.cash + totals.other - (totals.debt ?? 0)
       return {
         month: s.month,
         totals,
@@ -362,12 +388,14 @@ export interface ChangeItem {
   key: string
   label: string
   sublabel: string
-  kind: 'holding' | 'bucket' | 'category'
+  kind: 'holding' | 'bucket' | 'card' | 'category'
   delta: number
   market: number
   flow: number
   isNew?: boolean
   removed?: boolean
+  /** A bank account: its change is money in or out, not a price move. */
+  balance?: boolean
 }
 
 export interface MonthChange {
@@ -447,7 +475,7 @@ export function monthChange(data: AppData, p: Portfolio, now = new Date()): Mont
     const v0 = old.value * f
     const unit1 = h.quantity !== 0 ? v1 / h.quantity : 0
     const flow = (h.quantity - old.quantity) * unit1
-    items.push({ key: h.id, label: h.symbol || h.name, sublabel: subOf(h), kind: 'holding', delta: v1 - v0, market: v1 - v0 - flow, flow })
+    items.push({ key: h.id, label: h.symbol || h.name, sublabel: subOf(h), kind: 'holding', delta: v1 - v0, market: v1 - v0 - flow, flow, balance: isBalance(h.type) })
   }
   for (const old of prevH.values()) {
     const v0 = old.value * f
@@ -476,6 +504,23 @@ export function monthChange(data: AppData, p: Portfolio, now = new Date()): Mont
     items.push({ key: old.id, label: old.name, sublabel: 'Cash bucket', kind: 'bucket', delta: -v0, market: 0, flow: -v0, removed: true })
   }
 
+  // More owed on a card lowers net worth; paying it off doesn't change it (the account drops too).
+  const prevC = new Map((prev.cards ?? []).map((c) => [c.id, c]))
+  for (const r of p.cards) {
+    if (r.value == null) continue
+    const old = prevC.get(r.card.id)
+    prevC.delete(r.card.id)
+    const v0 = old ? old.value * f : 0
+    const unit = convert(1, r.card.currency, p.base, p.rates) ?? 0
+    const flow = -(r.owed - (old?.owed ?? 0)) * unit
+    const delta = -(r.value - v0)
+    items.push({ key: r.card.id, label: r.card.name, sublabel: 'Credit card', kind: 'card', delta, market: delta - flow, flow, isNew: !old && r.owed > 0 })
+  }
+  for (const old of prevC.values()) {
+    const v0 = old.value * f
+    items.push({ key: old.id, label: old.name, sublabel: 'Credit card', kind: 'card', delta: v0, market: 0, flow: v0, removed: true })
+  }
+
   base.items = items.filter((i) => Math.abs(i.delta) > 0.005).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
   base.market = items.reduce((s, i) => s + i.market, 0)
   base.flow = items.reduce((s, i) => s + i.flow, 0)
@@ -499,6 +544,10 @@ export interface GoalProgress {
   projected: string | null
   status: GoalStatus
   sourceLabel: string
+  /** The goal counts units of a holding rather than money. */
+  units: boolean
+  /** For a unit goal: what the missing units cost at today's price, in the base currency. */
+  costToFinish: number | null
 }
 
 export function goalSourceLabel(goal: Goal, data: AppData): string {
@@ -511,9 +560,10 @@ export function goalSourceLabel(goal: Goal, data: AppData): string {
     case 'cash': return 'All cash'
     case 'manual': return 'Updated by hand'
     case 'bucket': return data.buckets.find((b) => b.id === s.id)?.name ?? 'Deleted bucket'
-    case 'holding': {
+    case 'holding':
+    case 'units': {
       const h = data.holdings.find((x) => x.id === s.id)
-      return h ? h.symbol || h.name : 'Deleted holding'
+      return h ? `${h.symbol || h.name}${s.kind === 'units' ? ' units' : ''}` : 'Deleted holding'
     }
   }
 }
@@ -529,6 +579,7 @@ function sourceValueNow(goal: Goal, p: Portfolio): number | null {
     case 'manual': return convert(s.current, goal.currency, p.base, p.rates)
     case 'bucket': return p.buckets.find((b) => b.bucket.id === s.id)?.value ?? null
     case 'holding': return p.holdings.find((h) => h.holding.id === s.id)?.value ?? null
+    case 'units': return p.holdings.find((h) => h.holding.id === s.id)?.holding.quantity ?? null
   }
 }
 
@@ -538,7 +589,7 @@ function sourceValueAt(goal: Goal, snap: Snapshot, p: Portfolio): number | null 
   const f = snapshotFactor(snap, p.base, p.rates)
   switch (s.kind) {
     case 'netWorth': return t.netWorth
-    case 'investments': return t.equities + t.crypto + t.other
+    case 'investments': return t.equities + t.crypto
     case 'equities': return t.equities
     case 'crypto': return t.crypto
     case 'cash': return t.cash
@@ -551,13 +602,18 @@ function sourceValueAt(goal: Goal, snap: Snapshot, p: Portfolio): number | null 
       const h = snap.holdings?.find((x) => x.id === s.id)
       return h ? h.value * f : null
     }
+    case 'units':
+      return snap.holdings?.find((x) => x.id === s.id)?.quantity ?? null
   }
 }
 
 export function goalProgress(goal: Goal, data: AppData, p: Portfolio, now = new Date()): GoalProgress {
   const thisMonth = monthKey(now)
+  const units = goal.source.kind === 'units'
+  // Unit goals compare unit counts directly; money goals convert to the goal's currency.
+  const toGoal = (v: number) => (units ? v : convert(v, p.base, goal.currency, p.rates))
   const nowBase = sourceValueNow(goal, p)
-  const current = nowBase != null ? convert(nowBase, p.base, goal.currency, p.rates) : null
+  const current = nowBase != null ? toGoal(nowBase) : null
   const pct = current != null && goal.target > 0 ? Math.max(0, current / goal.target) : 0
   const remaining = current != null ? Math.max(0, goal.target - current) : null
   const monthsLeft = goal.deadline ? Math.max(0, monthDiff(thisMonth, goal.deadline)) : null
@@ -573,7 +629,7 @@ export function goalProgress(goal: Goal, data: AppData, p: Portfolio, now = new 
     if (past.length) {
       const first = past[0]
       const span = monthDiff(first.month, thisMonth)
-      const startGoalCcy = convert(first.value, p.base, goal.currency, p.rates)
+      const startGoalCcy = toGoal(first.value)
       if (span > 0 && startGoalCcy != null && current != null) pace = (current - startGoalCcy) / span
     }
   }
@@ -590,9 +646,16 @@ export function goalProgress(goal: Goal, data: AppData, p: Portfolio, now = new 
   else if (pace == null) status = 'unknown'
   else status = pace >= (perMonth ?? 0) * 0.95 ? 'on-track' : 'behind'
 
+  let costToFinish: number | null = null
+  if (units && remaining != null && goal.source.kind === 'units') {
+    const id = goal.source.id
+    const row = p.holdings.find((h) => h.holding.id === id)
+    if (row?.price != null) costToFinish = convert(remaining * row.price, row.priceCurrency, p.base, p.rates)
+  }
+
   return {
     goal, current, pct, remaining, monthsLeft, perMonth, pace, projected, status,
-    sourceLabel: goalSourceLabel(goal, data)
+    sourceLabel: goalSourceLabel(goal, data), units, costToFinish
   }
 }
 

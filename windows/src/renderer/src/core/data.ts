@@ -22,6 +22,7 @@ export function emptyData(): AppData {
     goals: [],
     snapshots: [],
     expenses: [],
+    cards: [],
     quotes: {},
     fx: null
   }
@@ -43,6 +44,7 @@ export function normalizeData(raw: unknown): AppData {
       ? [...d.snapshots].sort((a, b) => a.month.localeCompare(b.month))
       : [],
     expenses: Array.isArray(d.expenses) ? d.expenses : [],
+    cards: Array.isArray(d.cards) ? d.cards.map((c) => ({ ...c, payments: Array.isArray(c.payments) ? c.payments : [] })) : [],
     quotes: d.quotes && typeof d.quotes === 'object' ? d.quotes : {},
     fx: d.fx ?? null
   }

@@ -1,6 +1,7 @@
 # Moneta for Windows
 
-A desktop app for tracking investments, bank accounts, cash buckets, daily spending, goals and month-by-month net worth.
+A desktop app for tracking investments, bank accounts, cash buckets, daily spending, credit cards, goals and
+month-by-month net worth.
 (Earlier versions were called Nest Egg.)
 
 ## Install
@@ -17,9 +18,15 @@ and the first start copies its data across. The old `%APPDATA%\Nest Egg` folder 
   Adding a ticker you already own records a buy on that holding instead of creating a second one.
 - **Cash buckets**: split the money in your bank accounts by purpose. A bucket inside an account is counted once, as part
   of that account. Unassigned money is whatever isn't in a bucket yet.
-- **Spending**: note what you spend each day, with a category, and it comes out of the bucket you pick (and its bank
-  account). A month calendar shows daily totals, with a list of each day's entries and a breakdown by category.
-- **Goals**: track net worth, cash, one bucket or one holding against a target and month.
+- **Spending**: note what you spend each day in any currency, with a category. The currencies you use most are listed
+  first, and each entry is converted to your main currency at that day's exchange rate. Paid in cash or by bank, it comes
+  out of the bucket you pick (and its bank account). A month calendar shows daily totals, with each day's entries and a
+  breakdown by category.
+- **Credit cards**: give each card its closing day (締め日), pay day (支払日) and the account that pays it. Card spending
+  is grouped into statements with their pay days, the bill is set aside in that account, and on the pay day Moneta can
+  record the payment automatically.
+- **Goals**: track net worth, cash, one bucket or one holding against a target and month, or a number of units of an
+  ETF or stock (e.g. own 100 VWRA).
 - **Monthly history**: the current month is saved automatically and frozen when the month ends. Past months can be typed
   in or imported from a Google Sheets CSV export.
 - **Currencies**: 166 currencies. Totals are shown in your main currency (Settings), and everything else keeps its own.
@@ -50,9 +57,9 @@ src/main/         Electron main process: data file, backups, price and FX reques
 src/preload/      the small API the window is allowed to call
 src/renderer/src/
   core/           platform-independent logic: money, trades and cost basis, cash moves, spending,
-                  monthly change, goals, CSV import, data migrations
+                  credit card statements, monthly change, goals, CSV import, data migrations
   components/     dialogs, charts, inputs
-  pages/          Overview, Holdings, Cash, Spending, Goals, History, Settings, Welcome
+  pages/          Overview, Holdings, Cash, Spending, Cards, Goals, History, Settings, Welcome
 ```
 
 `src/renderer/src/core` and `src/shared` have no Electron or DOM dependencies, so an iOS version can reuse them.

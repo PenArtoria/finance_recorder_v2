@@ -24,6 +24,7 @@ export function History() {
 
   const points = useMemo(() => history(data, p), [data, p])
   const shown = range === 'all' ? points : points.slice(-(Number(range) + 1))
+  const anyDebt = points.some((pt) => (pt.totals.debt ?? 0) > 0.005)
   const rows = points
     .map((pt, i) => {
       const prev = i > 0 ? points[i - 1].totals.netWorth : null
@@ -33,13 +34,14 @@ export function History() {
     .reverse()
 
   const exportCsv = async () => {
-    const header = ['Month', ...CATEGORIES.map((c) => `${CATEGORY_LABEL[c]} (${fmt.base})`), `Net worth (${fmt.base})`, 'Change', 'Change %']
+    const header = ['Month', ...CATEGORIES.map((c) => `${CATEGORY_LABEL[c]} (${fmt.base})`), `Card debt (${fmt.base})`, `Net worth (${fmt.base})`, 'Change', 'Change %']
     const body = rows
       .slice()
       .reverse()
       .map((r) => [
         r.month,
         ...CATEGORIES.map((c) => r.totals[c].toFixed(2)),
+        (r.totals.debt ?? 0).toFixed(2),
         r.totals.netWorth.toFixed(2),
         r.change != null ? r.change.toFixed(2) : '',
         r.pct != null ? (r.pct * 100).toFixed(2) : ''
@@ -125,6 +127,7 @@ export function History() {
                     {CATEGORIES.map((c) => (
                       <th key={c} className="r">{CATEGORY_LABEL[c]}</th>
                     ))}
+                    {anyDebt && <th className="r">Cards</th>}
                     <th className="r">Net worth</th>
                     <th className="r">Change</th>
                   </tr>
@@ -153,6 +156,7 @@ export function History() {
                           {CATEGORIES.map((c) => (
                             <td key={c} className="r">{r.totals[c] ? fmt.money(r.totals[c]) : <span className="faint">—</span>}</td>
                           ))}
+                          {anyDebt && <td className="r">{r.totals.debt ? fmt.money(-r.totals.debt) : <span className="faint">—</span>}</td>}
                           <td className="r" style={{ fontWeight: 600 }}>{fmt.money(r.totals.netWorth)}</td>
                           <td className="r">
                             {r.change != null ? (
@@ -167,7 +171,7 @@ export function History() {
                         </tr>
                         {isOpen && (
                           <tr>
-                            <td colSpan={7} style={{ background: 'var(--surface-2)', whiteSpace: 'normal' }}>
+                            <td colSpan={anyDebt ? 8 : 7} style={{ background: 'var(--surface-2)', whiteSpace: 'normal' }}>
                               <MonthDetail snapshot={r.live ? undefined : r.snapshot} live={r.live} onEdit={() => r.snapshot && !r.live && setEditing(r.snapshot)} />
                             </td>
                           </tr>

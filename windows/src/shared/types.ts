@@ -119,6 +119,8 @@ export type GoalSource =
   | { kind: 'cash' }
   | { kind: 'bucket'; id: string }
   | { kind: 'holding'; id: string }
+  /** Number of units of a holding, e.g. own 100 VWRA. The goal's target is then a unit count. */
+  | { kind: 'units'; id: string }
   | { kind: 'manual'; current: number }
 
 export interface Goal {
@@ -160,7 +162,17 @@ export interface SnapshotTotals {
   crypto: number
   cash: number
   other: number
+  /** Owed on credit cards. Net worth is assets minus this. */
+  debt?: number
   netWorth: number
+}
+
+export interface SnapshotCard {
+  id: string
+  name: string
+  owed: number
+  currency: string
+  value: number
 }
 
 export interface Snapshot {
@@ -172,6 +184,7 @@ export interface Snapshot {
   totals: SnapshotTotals
   holdings?: SnapshotHolding[]
   buckets?: SnapshotBucket[]
+  cards?: SnapshotCard[]
   /** USD-based rates at the time of the snapshot, used to show it in another currency. */
   fx?: Record<string, number>
   source: 'auto' | 'manual' | 'import'
@@ -196,8 +209,56 @@ export interface Expense {
   currency: string
   category: string
   note?: string
-  /** Where the money came from. Without one, no balance changes (e.g. a credit card you track elsewhere). */
+  /** Where the money came from. With a card, only the bucket's budget goes down; the bank pays on the card's pay day. */
   source?: MoneySource | null
+  /** Credit card it was charged to. */
+  cardId?: string | null
+  /** The charge in the card's currency, fixed when it was entered. */
+  cardAmount?: number
+  /** Value in US dollars on the day it was entered, so totals keep that day's exchange rate. */
+  usd?: number
+  createdAt: number
+}
+
+export interface CardPayment {
+  id: string
+  /** YYYY-MM-DD */
+  date: string
+  /** In the card's currency. */
+  amount: number
+  /** Bank account the bill was paid from. */
+  fromAccountId?: string | null
+  /** What left that account, in its currency, so removing the payment can restore it. */
+  accountAmount?: number
+  /** Closing date (YYYY-MM-DD) of the statement this pays. */
+  statement: string
+  /** Recorded by Moneta on the pay day. */
+  auto?: boolean
+  createdAt: number
+}
+
+export interface CreditCard {
+  id: string
+  name: string
+  issuer?: string
+  currency: string
+  limit?: number | null
+  /** Day of the month the statement closes (締め日). 31 means the last day. */
+  closingDay: number
+  /** Day of the month the bill is paid (支払日). 31 means the last day. */
+  dueDay: number
+  /** Months after the closing month that the bill is paid: 1 = next month (翌月), 2 = the month after (翌々月). */
+  dueMonths: number
+  /** Bank account the bill is paid from (引き落とし口座). */
+  payFromId?: string | null
+  /** Record the payment automatically on the pay day. */
+  autoPay: boolean
+  /** Unpaid amount when the card was added, counted on that date. */
+  opening?: number | null
+  openingDate?: string
+  payments: CardPayment[]
+  color: number
+  note?: string
   createdAt: number
 }
 
@@ -212,6 +273,7 @@ export interface AppData {
   goals: Goal[]
   snapshots: Snapshot[]
   expenses: Expense[]
+  cards: CreditCard[]
   quotes: Record<string, Quote>
   fx: FxTable | null
 }

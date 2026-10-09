@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, Plus, ReceiptText, RefreshCw, Target } from 'lucide-react'
 import { CATEGORIES, CATEGORY_LABEL, goalProgress, history, monthChange, monthKey, monthLabel } from '@/core/calc'
+import { nextBill, statementsOf } from '@/core/cards'
 import { byCategory, categoryLabel, dailyTotals, expensesIn } from '@/core/spending'
-import { todayIso } from '@/core/trades'
+import { dateLabel, todayIso } from '@/core/trades'
 import { formatPct } from '@/core/money'
 import { useChartColors, useFmt, usePortfolio } from '@/hooks'
 import { useNav } from '@/nav'
@@ -11,7 +12,8 @@ import { AllocationDonut, NetWorthChart } from '@/components/charts'
 import { CategoryIcon, ExpenseDialog } from '@/components/ExpenseDialog'
 import { HoldingDialog } from '@/components/HoldingDialog'
 import { Card, CardHead, Delta, PageHead, Progress, Segmented } from '@/components/ui'
-import { ExampleBanner, GoalStatusPill } from './shared'
+import { StatementPill } from './Cards'
+import { ExampleBanner, GoalStatusPill, useGoalFormat } from './shared'
 
 function greeting(name: string) {
   const h = new Date().getHours()
@@ -27,6 +29,7 @@ export function Overview() {
   const p = usePortfolio()
   const fmt = useFmt()
   const colors = useChartColors()
+  const gv = useGoalFormat()
   const [range, setRange] = useState<'12' | 'all'>('12')
   const [adding, setAdding] = useState<'investment' | 'bank' | null>(null)
   const [spending, setSpending] = useState(false)
@@ -50,6 +53,15 @@ export function Overview() {
       top: byCategory(items, p.base, p.rates)[0]
     }
   }, [data, p.base, p.rates])
+
+  const bills = useMemo(
+    () =>
+      data.cards
+        .map((card) => ({ card, s: nextBill(statementsOf(data, card, p.rates)) }))
+        .filter((b): b is { card: typeof b.card; s: NonNullable<typeof b.s> } => !!b.s && b.s.remaining > 0.005)
+        .sort((a, b) => a.s.due.localeCompare(b.s.due)),
+    [data, p.rates]
+  )
 
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
   const empty = data.holdings.length === 0 && data.buckets.length === 0
@@ -166,7 +178,13 @@ export function Overview() {
                     <div className="sub-line">
                       {it.kind === 'category'
                         ? it.sublabel
-                        : it.kind === 'bucket'
+                        : it.kind === 'card'
+                          ? it.removed
+                            ? 'Card removed'
+                            : it.flow < 0
+                              ? 'More charged than paid'
+                              : 'Paid down'
+                        : it.kind === 'bucket' || it.balance
                           ? Math.abs(it.market) > 0.5
                             ? `Saved ${fmt.money(it.flow, { sign: true })} · exchange rate ${fmt.money(it.market, { sign: true })}`
                             : it.flow >= 0
@@ -209,7 +227,7 @@ export function Overview() {
                   </div>
                   <Progress value={g.pct} tone={g.status === 'reached' ? 'good' : undefined} />
                   <div className="sub-line num">
-                    {fmt.money(g.current, { currency: g.goal.currency })} of {fmt.money(g.goal.target, { currency: g.goal.currency })} · {formatPct(Math.min(g.pct, 9.99), false, 0)}
+                    {gv(g, g.current)} of {gv(g, g.goal.target)} · {formatPct(Math.min(g.pct, 9.99), false, 0)}
                     {g.goal.deadline ? ` · by ${monthLabel(g.goal.deadline)}` : ''}
                   </div>
                 </div>
@@ -255,6 +273,35 @@ export function Overview() {
             </>
           )}
         </Card>
+
+        {data.cards.length > 0 && (
+          <Card>
+            <CardHead title="Card bills">
+              <button className="btn ghost sm" onClick={() => go('cards')}>
+                Cards <ArrowRight size={14} />
+              </button>
+            </CardHead>
+            {bills.length === 0 ? (
+              <p className="muted">Nothing owed on your cards.</p>
+            ) : (
+              <div className="list">
+                {bills.map(({ card, s }) => (
+                  <div className="list-row" key={card.id} style={{ padding: '8px 0' }}>
+                    <i className="key-dot" style={{ background: `var(--s${(card.color % 8) + 1})` }} />
+                    <div className="grow">
+                      <div className="title" style={{ fontWeight: 560 }}>{card.name}</div>
+                      <div className="sub-line">Pay day {dateLabel(s.due, false)}</div>
+                    </div>
+                    <StatementPill s={s} />
+                    <span className="num" style={{ fontWeight: 600, minWidth: 90, textAlign: 'right' }}>
+                      {fmt.money(s.remaining, { currency: card.currency })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
         </div>
       </div>
 

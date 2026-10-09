@@ -3,14 +3,16 @@ import { Trash2 } from 'lucide-react'
 import type { Goal, GoalSource } from '@shared/types'
 import { addMonths, monthKey } from '@/core/calc'
 import { uid } from '@/core/data'
-import { symbolFor } from '@/core/money'
+import { formatQty, symbolFor } from '@/core/money'
+import { isUnits } from '@/core/trades'
 import { useApp } from '@/store'
 import { CurrencySelect } from './CurrencySelect'
-import { ConfirmDialog, Dialog, Field, NumberInput } from './ui'
+import { ConfirmDialog, Dialog, Field, NumberInput, Segmented } from './ui'
 
 type Kind = GoalSource['kind']
+type MoneyKind = Exclude<Kind, 'units'>
 
-const KIND_LABEL: Record<Kind, string> = {
+const KIND_LABEL: Record<MoneyKind, string> = {
   netWorth: 'My net worth',
   investments: 'All my investments',
   equities: 'Stocks & funds',
@@ -34,22 +36,28 @@ export function GoalDialog({ goal, onClose }: { goal?: Goal; onClose: () => void
   const [currency, setCurrency] = useState(goal?.currency ?? base)
   const [hasDeadline, setHasDeadline] = useState(goal ? !!goal.deadline : true)
   const [deadline, setDeadline] = useState(goal?.deadline ?? addMonths(monthKey(), 12))
-  const [kind, setKind] = useState<Kind>(goal?.source.kind ?? 'netWorth')
+  const unitHoldings = holdings.filter((h) => isUnits(h.type))
+  const [goalType, setGoalType] = useState<'money' | 'units'>(goal?.source.kind === 'units' ? 'units' : 'money')
+  const [kind, setKind] = useState<MoneyKind>(goal && goal.source.kind !== 'units' ? goal.source.kind : 'netWorth')
   const [bucketId, setBucketId] = useState(goal?.source.kind === 'bucket' ? goal.source.id : buckets[0]?.id ?? '')
   const [holdingId, setHoldingId] = useState(goal?.source.kind === 'holding' ? goal.source.id : holdings[0]?.id ?? '')
+  const [unitId, setUnitId] = useState(goal?.source.kind === 'units' ? goal.source.id : unitHoldings[0]?.id ?? '')
+  const unitHolding = unitHoldings.find((h) => h.id === unitId)
   const [manual, setManual] = useState<number | null>(goal?.source.kind === 'manual' ? goal.source.current : 0)
   const [note, setNote] = useState(goal?.note ?? '')
   const [tried, setTried] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const sourceOk = (kind !== 'bucket' || bucketId) && (kind !== 'holding' || holdingId)
+  const sourceOk = goalType === 'units' ? !!unitHolding : (kind !== 'bucket' || bucketId) && (kind !== 'holding' || holdingId)
   const valid = name.trim() && target && target > 0 && sourceOk && (!hasDeadline || /^\d{4}-\d{2}$/.test(deadline))
 
   const save = () => {
     setTried(true)
     if (!valid) return
     const source: GoalSource =
-      kind === 'bucket'
+      goalType === 'units'
+        ? { kind: 'units', id: unitId }
+        : kind === 'bucket'
         ? { kind, id: bucketId }
         : kind === 'holding'
           ? { kind, id: holdingId }
@@ -60,7 +68,7 @@ export function GoalDialog({ goal, onClose }: { goal?: Goal; onClose: () => void
       id: goal?.id ?? uid('g'),
       name: name.trim(),
       target: target ?? 0,
-      currency,
+      currency: goalType === 'units' ? unitHolding?.currency ?? currency : currency,
       deadline: hasDeadline ? deadline : null,
       source,
       note: note.trim() || undefined,
@@ -108,9 +116,45 @@ export function GoalDialog({ goal, onClose }: { goal?: Goal; onClose: () => void
         }
       >
         <div className="form">
+          <Segmented
+            value={goalType}
+            onChange={setGoalType}
+            label="Goal type"
+            options={[
+              { value: 'money', label: 'An amount of money' },
+              { value: 'units', label: 'Units of an ETF or stock' }
+            ]}
+          />
           <Field label="Goal" error={tried && !name.trim() ? 'Name the goal.' : undefined}>
-            <input className="input" value={name} autoFocus={!editing} placeholder="e.g. First $100k, House deposit" onChange={(e) => setName(e.target.value)} />
+            <input
+              className="input"
+              value={name}
+              autoFocus={!editing}
+              placeholder={goalType === 'units' ? 'e.g. Own 100 VWRA' : 'e.g. First $100k, House deposit'}
+              onChange={(e) => setName(e.target.value)}
+            />
           </Field>
+          {goalType === 'units' && (
+            <>
+              <Field label="Holding" error={tried && !unitHolding ? 'Add the ETF or stock on the Holdings page first.' : undefined}>
+                <select className="select" value={unitId} onChange={(e) => setUnitId(e.target.value)}>
+                  {unitHoldings.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.symbol ? `${h.symbol} · ${h.name}` : h.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field
+                label="Target units"
+                hint={unitHolding ? `You own ${formatQty(unitHolding.quantity)} now. Buys you record with Buy more count toward it.` : undefined}
+                error={tried && !(target && target > 0) ? 'Enter how many units you want to own.' : undefined}
+              >
+                <NumberInput value={target} onChange={setTarget} placeholder="e.g. 100" />
+              </Field>
+            </>
+          )}
+          {goalType === 'money' && (
           <div className="form-row">
             <Field label="Target amount" error={tried && !(target && target > 0) ? 'Enter a target above 0.' : undefined}>
               <NumberInput value={target} onChange={setTarget} prefix={symbolFor(currency)} placeholder="0" />
@@ -119,16 +163,19 @@ export function GoalDialog({ goal, onClose }: { goal?: Goal; onClose: () => void
               <CurrencySelect value={currency} onChange={setCurrency} />
             </Field>
           </div>
+          )}
+          {goalType === 'money' && (
           <Field label="What counts toward it">
-            <select className="select" value={kind} onChange={(e) => setKind(e.target.value as Kind)}>
-              {(Object.keys(KIND_LABEL) as Kind[]).map((k) => (
+            <select className="select" value={kind} onChange={(e) => setKind(e.target.value as MoneyKind)}>
+              {(Object.keys(KIND_LABEL) as MoneyKind[]).map((k) => (
                 <option key={k} value={k} disabled={(k === 'bucket' && !buckets.length) || (k === 'holding' && !holdings.length)}>
                   {KIND_LABEL[k]}
                 </option>
               ))}
             </select>
           </Field>
-          {kind === 'bucket' && (
+          )}
+          {goalType === 'money' && kind === 'bucket' && (
             <Field label="Bucket">
               <select className="select" value={bucketId} onChange={(e) => setBucketId(e.target.value)}>
                 {buckets.map((b) => (
@@ -139,7 +186,7 @@ export function GoalDialog({ goal, onClose }: { goal?: Goal; onClose: () => void
               </select>
             </Field>
           )}
-          {kind === 'holding' && (
+          {goalType === 'money' && kind === 'holding' && (
             <Field label="Holding">
               <select className="select" value={holdingId} onChange={(e) => setHoldingId(e.target.value)}>
                 {holdings.map((h) => (
@@ -150,7 +197,7 @@ export function GoalDialog({ goal, onClose }: { goal?: Goal; onClose: () => void
               </select>
             </Field>
           )}
-          {kind === 'manual' && (
+          {goalType === 'money' && kind === 'manual' && (
             <Field label="Saved so far">
               <NumberInput value={manual} onChange={setManual} prefix={symbolFor(currency)} />
             </Field>
