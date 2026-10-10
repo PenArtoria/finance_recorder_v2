@@ -149,6 +149,30 @@ export function migrateFromNestEgg() {
   }
 }
 
+// Per-device values (sync key and sync state). Kept in the app folder, never in the
+// data file, so moving or backing up the data file doesn't copy the sync key.
+const kvPath = () => join(app.getPath('userData'), 'device.json')
+
+function readKv(): Record<string, string> {
+  try {
+    return JSON.parse(readFileSync(kvPath(), 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+export function kvGet(key: string): string | null {
+  return readKv()[key] ?? null
+}
+
+export function kvSet(key: string, value: string | null) {
+  const all = readKv()
+  if (value == null) delete all[key]
+  else all[key] = value
+  mkdirSync(app.getPath('userData'), { recursive: true })
+  writeFileSync(kvPath(), JSON.stringify(all), 'utf8')
+}
+
 let watched: string | null = null
 
 /** Calls `onChange` when another program (e.g. OneDrive sync) replaces the data file. */

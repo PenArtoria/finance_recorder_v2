@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { applyThemeAttr, useIsDark } from './hooks'
 import { useNav } from './nav'
 import { useApp } from './store'
+import { BottomNav } from './components/BottomNav'
 import { Sidebar } from './components/Sidebar'
 import { Toasts } from './components/ui'
 import { Cards } from './pages/Cards'
@@ -95,6 +96,7 @@ export function App() {
           <main className="main">
             <Page />
           </main>
+          <BottomNav />
         </div>
       ) : (
         <div className="main" style={{ height: '100%' }}>

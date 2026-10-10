@@ -6,6 +6,7 @@ import { exampleData } from '@/core/example'
 import { timeAgo } from '@/hooks'
 import { useApp } from '@/store'
 import { CurrencySelect } from '@/components/CurrencySelect'
+import { SyncCard } from '@/components/SyncCard'
 import { Card, CardHead, ConfirmDialog, PageHead, Segmented, Toggle } from '@/components/ui'
 
 export function Settings() {
@@ -147,6 +148,8 @@ export function Settings() {
         </div>
       </Card>
 
+      <SyncCard />
+
       <Card>
         <CardHead title="Exchange rates" />
         <div className="setting-row">
@@ -167,6 +170,15 @@ export function Settings() {
 
       <Card>
         <CardHead title="Your data" />
+        {window.api.platform === 'web' ? (
+          <div className="setting-row" style={{ alignItems: 'flex-start' }}>
+            <div className="text">
+              <b>Where it’s saved</b>
+              <span>On this phone. With sync on, an encrypted copy is kept in the cloud too, so nothing is lost if the phone clears its storage.</span>
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="setting-row" style={{ alignItems: 'flex-start' }}>
           <div className="text">
             <b>Where it’s saved</b>
@@ -190,6 +202,8 @@ export function Settings() {
             </button>
           )}
         </div>
+        </>
+        )}
         <div className="setting-row" style={{ marginTop: 16, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
           <div className="text">
             <b>Backup file</b>

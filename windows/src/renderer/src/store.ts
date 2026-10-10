@@ -5,6 +5,7 @@ import { computePortfolio, ratesOf, withLiveSnapshot } from './core/calc'
 import { emptyData, normalizeData, uid } from './core/data'
 import { formatMoney } from './core/money'
 import { dateLabel } from './core/trades'
+import { DEFAULT_SERVER, isOffline, SyncEngine } from './sync/engine'
 
 const api = window.api
 
@@ -20,6 +21,13 @@ interface PriceStatus {
   errors: QuoteError[]
   fxError: string | null
   offline: boolean
+}
+
+export interface SyncStatus {
+  enabled: boolean
+  state: 'off' | 'idle' | 'syncing' | 'offline' | 'error'
+  lastSync: number | null
+  error: string | null
 }
 
 interface State {
@@ -41,12 +49,23 @@ interface State {
   toast(text: string, kind?: Toast['kind']): void
   dismissToast(id: number): void
   setInfo(info: DataInfo): void
+  sync: SyncStatus
+  /** Syncs now (pull, merge, push). Quiet unless something goes wrong. */
+  syncNow(): Promise<void>
+  enableSync(): Promise<void>
+  /** Links this device with a pairing code or a full sync key. */
+  linkSync(codeOrKey: string): Promise<void>
+  disableSync(deleteRemote: boolean): Promise<void>
+  createPairCode(): Promise<{ code: string; expires: number }>
+  exportSyncKey(): Promise<string | null>
 }
 
 const FX_MAX_AGE = 6 * 60 * 60 * 1000
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+let syncTimer: ReturnType<typeof setTimeout> | null = null
 let lastSaveAt = 0
+let lastSyncAttempt = 0
 let toastId = 1
 
 function finalize(data: AppData): AppData {
@@ -56,19 +75,49 @@ function finalize(data: AppData): AppData {
 }
 
 export const useApp = create<State>((set, get) => {
+  const engine = new SyncEngine({
+    server: api.platform === 'web' ? '' : DEFAULT_SERVER,
+    kvGet: (k) => api.kvGet(k),
+    kvSet: (k, v) => api.kvSet(k, v),
+    getData: () => get().data,
+    applyData: (d) => {
+      set({ data: finalize(normalizeData(d)) })
+      saveNow()
+    }
+  })
+
+  const scheduleSync = (ms = 2500) => {
+    if (!get().sync.enabled) return
+    if (syncTimer) clearTimeout(syncTimer)
+    syncTimer = setTimeout(() => {
+      syncTimer = null
+      void get().syncNow()
+    }, ms)
+  }
+
+  const saveNow = async () => {
+    try {
+      await api.saveData(get().data)
+      lastSaveAt = Date.now()
+      if (get().saveError) set({ saveError: null })
+    } catch (err: any) {
+      set({ saveError: err?.message || 'Could not save' })
+      get().toast('Could not save your data.', 'error')
+    }
+  }
+
   const scheduleSave = () => {
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(async () => {
       saveTimer = null
-      try {
-        await api.saveData(get().data)
-        lastSaveAt = Date.now()
-        if (get().saveError) set({ saveError: null })
-      } catch (err: any) {
-        set({ saveError: err?.message || 'Could not save' })
-        get().toast('Could not save your data. Check that the data folder is available.', 'error')
-      }
+      await saveNow()
+      scheduleSync()
     }, 400)
+  }
+
+  // Sync when the app comes back into view, and every minute while it's open.
+  const onWake = () => {
+    if (document.visibilityState === 'visible' && Date.now() - lastSyncAttempt > 15000) void get().syncNow()
   }
 
   return {
@@ -79,6 +128,7 @@ export const useApp = create<State>((set, get) => {
     prices: { loading: false, lastRun: null, errors: [], fxError: null, offline: false },
     toasts: [],
     saveError: null,
+    sync: { enabled: false, state: 'off', lastSync: null, error: null },
 
     async init() {
       try {
@@ -86,6 +136,13 @@ export const useApp = create<State>((set, get) => {
         const data = res.data ? normalizeData(res.data) : emptyData()
         set({ data: finalize(data), info: res.info, status: 'ready' })
         get().autoPayCards()
+        if (await engine.key()) {
+          set({ sync: { enabled: true, state: 'idle', lastSync: await engine.lastSync(), error: null } })
+          void get().syncNow()
+        }
+        window.addEventListener('focus', onWake)
+        document.addEventListener('visibilitychange', onWake)
+        setInterval(() => document.visibilityState === 'visible' && get().sync.enabled && get().syncNow(), 60000)
         api.onExternalChange(() => {
           // Ignore the echo of our own save; reload when another device changed the file.
           if (saveTimer || Date.now() - lastSaveAt < 4000) return
@@ -174,6 +231,58 @@ export const useApp = create<State>((set, get) => {
       set({ data: finalize(draft) })
       scheduleSave()
       for (const p of done) get().toast(`${p.card}: ${formatMoney(p.amount, p.currency)} paid automatically on ${dateLabel(p.date, false)}.`, 'info')
+    },
+
+    async syncNow() {
+      if (!get().sync.enabled) return
+      lastSyncAttempt = Date.now()
+      set({ sync: { ...get().sync, state: 'syncing' } })
+      try {
+        await engine.sync()
+        set({ sync: { enabled: true, state: 'idle', lastSync: Date.now(), error: null } })
+      } catch (err: any) {
+        set({ sync: { ...get().sync, state: isOffline(err) ? 'offline' : 'error', error: err?.message || String(err) } })
+      }
+    },
+
+    async enableSync() {
+      set({ sync: { enabled: true, state: 'syncing', lastSync: null, error: null } })
+      try {
+        await engine.enable()
+        set({ sync: { enabled: true, state: 'idle', lastSync: Date.now(), error: null } })
+      } catch (err: any) {
+        await engine.disable(false).catch(() => {})
+        set({ sync: { enabled: false, state: 'off', lastSync: null, error: err?.message || String(err) } })
+        throw err
+      }
+    },
+
+    async linkSync(codeOrKey) {
+      const text = codeOrKey.trim()
+      set({ sync: { enabled: true, state: 'syncing', lastSync: null, error: null } })
+      try {
+        if (text.replace(/[\s-]/g, '').length <= 10) await engine.linkWithCode(text)
+        else await engine.link(text)
+        set({ sync: { enabled: true, state: 'idle', lastSync: Date.now(), error: null } })
+        if (!get().data.onboarded) get().mutate((d) => void (d.onboarded = true))
+      } catch (err: any) {
+        await engine.disable(false).catch(() => {})
+        set({ sync: { enabled: false, state: 'off', lastSync: null, error: null } })
+        throw err
+      }
+    },
+
+    async disableSync(deleteRemote) {
+      await engine.disable(deleteRemote)
+      set({ sync: { enabled: false, state: 'off', lastSync: null, error: null } })
+    },
+
+    createPairCode() {
+      return engine.createPairCode()
+    },
+
+    exportSyncKey() {
+      return engine.exportKey()
     },
 
     toast(text, kind = 'info') {

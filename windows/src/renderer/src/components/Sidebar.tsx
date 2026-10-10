@@ -1,7 +1,8 @@
-import { CalendarDays, CreditCard, Eye, EyeOff, Goal, History, LayoutDashboard, LineChart, RefreshCw, Settings, Wallet } from 'lucide-react'
+import { CalendarDays, Cloud, CreditCard, Eye, EyeOff, Goal, History, LayoutDashboard, LineChart, RefreshCw, Settings, Wallet } from 'lucide-react'
 import { timeAgo, useNow, usePortfolio } from '@/hooks'
 import { useNav, type Page } from '@/nav'
 import { useApp } from '@/store'
+import { SyncStatusLine } from './SyncCard'
 import { Logo } from './Logo'
 
 const NAV: { page: Page; label: string; icon: typeof Wallet }[] = [
@@ -24,6 +25,7 @@ export function Sidebar() {
   const refreshMinutes = useApp((s) => s.data.settings.refreshMinutes)
   const hasSymbols = useApp((s) => s.data.holdings.some((h) => h.symbol))
   const p = usePortfolio()
+  const syncOn = useApp((s) => s.sync.enabled)
   const now = useNow(20000)
 
   const last = prices.lastRun ?? p.oldestQuote
@@ -75,6 +77,12 @@ export function Sidebar() {
             <RefreshCw size={15} className={prices.loading ? 'spin' : ''} />
           </button>
         </div>
+        {syncOn && (
+          <button className="sync-status" onClick={() => go('settings')} title="Sync settings">
+            <Cloud size={14} />
+            <SyncStatusLine />
+          </button>
+        )}
       </div>
     </aside>
   )

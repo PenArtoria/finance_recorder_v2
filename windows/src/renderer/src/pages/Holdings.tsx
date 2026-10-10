@@ -138,11 +138,11 @@ export function Holdings() {
                   <thead>
                     <tr>
                       <th>Asset</th>
-                      <th className="r">Units</th>
-                      <th className="r">Price</th>
-                      <th className="r">Today</th>
+                      <th className="r hide-sm">Units</th>
+                      <th className="r hide-sm">Price</th>
+                      <th className="r hide-sm">Today</th>
                       <th className="r">Value ({fmt.base})</th>
-                      <th className="r">This month</th>
+                      <th className="r hide-sm">This month</th>
                       <th className="r">Gain or loss</th>
                       <th aria-label="Buy more" />
                     </tr>
@@ -164,22 +164,26 @@ export function Holdings() {
                                   <span className="type-chip">{TYPE_LABEL[h.type]}</span>
                                   {err && <AlertTriangle size={13} className="bad" aria-label={err.message} />}
                                 </span>
-                                <span className="asset-name" title={h.name}>
+                                <span className="asset-name hide-sm" title={h.name}>
                                   {h.symbol ? h.name : h.account || 'Price entered by hand'}
                                   {h.symbol && h.account ? ` · ${h.account}` : ''}
+                                </span>
+                                <span className="asset-name show-sm">
+                                  {fmt.qty(h.quantity)} × {fmt.price(r.price, r.priceCurrency)}
+                                  {r.dayPct != null ? ` · ${formatPct(r.dayPct)} today` : ''}
                                 </span>
                               </div>
                             </div>
                           </td>
-                          <td className="r">
+                          <td className="r hide-sm">
                             {fmt.qty(h.quantity)}
                             {h.trades && h.trades.length > 1 && <div className="sub-line">{h.trades.length} trades</div>}
                           </td>
-                          <td className="r">
+                          <td className="r hide-sm">
                             {fmt.price(r.price, r.priceCurrency)}
                             <div className="sub-line">{r.quote?.fetchedAt ? timeAgo(r.quote.fetchedAt) : h.symbol ? 'not updated yet' : 'manual'}</div>
                           </td>
-                          <td className="r">
+                          <td className="r hide-sm">
                             <PctDelta value={r.dayPct} />
                             {r.dayChange != null && <div className="sub-line">{fmt.money(r.dayChange, { sign: true })}</div>}
                           </td>
@@ -189,7 +193,7 @@ export function Holdings() {
                               <div className="sub-line" style={{ fontWeight: 400 }}>{fmt.money(r.valueLocal, { currency: r.priceCurrency })}</div>
                             )}
                           </td>
-                          <td className="r">
+                          <td className="r hide-sm">
                             {m ? (
                               <>
                                 <Delta value={m.delta} text={fmt.money(m.delta, { sign: true })} size={13} />
@@ -269,8 +273,8 @@ export function Holdings() {
                     <tr>
                       <th>Account</th>
                       <th className="r">Balance</th>
-                      <th className="r">Set aside</th>
-                      <th className="r">Unassigned</th>
+                      <th className="r hide-sm">Set aside</th>
+                      <th className="r hide-sm">Unassigned</th>
                       <th className="r">Value ({fmt.base})</th>
                     </tr>
                   </thead>
@@ -289,17 +293,18 @@ export function Holdings() {
                                   <span className="asset-sym-text">{h.name}</span>
                                   <span className="type-chip">{TYPE_LABEL[h.type]}</span>
                                 </span>
-                                <span className="asset-name">{[h.account, h.note].filter(Boolean).join(' · ') || h.currency}</span>
+                                <span className="asset-name hide-sm">{[h.account, h.note].filter(Boolean).join(' · ') || h.currency}</span>
+                                <span className="asset-name show-sm">{fmt.money(a.unassigned, { currency: h.currency })} not in a bucket</span>
                               </div>
                             </div>
                           </td>
                           <td className="r">{fmt.money(h.quantity, { currency: h.currency })}</td>
-                          <td className="r">
+                          <td className="r hide-sm">
                             {a.buckets.length ? fmt.money(a.assigned, { currency: h.currency }) : <span className="faint">—</span>}
                             {a.buckets.length > 0 && <div className="sub-line">{a.buckets.length} bucket{a.buckets.length === 1 ? '' : 's'}</div>}
                             {a.reserved > 0.005 && <div className="sub-line">+ {fmt.money(a.reserved, { currency: h.currency })} for card bills</div>}
                           </td>
-                          <td className={`r ${a.unassigned < -0.005 ? 'bad' : ''}`}>
+                          <td className={`r hide-sm ${a.unassigned < -0.005 ? 'bad' : ''}`}>
                             {fmt.money(a.unassigned, { currency: h.currency })}
                             {a.unassigned < -0.005 && <div className="sub-line bad">More set aside than the balance</div>}
                           </td>
