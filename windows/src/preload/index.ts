@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { MonetaApi } from './index.d'
 
 const api: MonetaApi = {
+  platform: 'windows',
+  kvGet: (key) => ipcRenderer.invoke('kv:get', key),
+  kvSet: (key, value) => ipcRenderer.invoke('kv:set', key, value),
   loadData: () => ipcRenderer.invoke('data:load'),
   saveData: (data) => ipcRenderer.invoke('data:save', data),
   dataInfo: () => ipcRenderer.invoke('data:info'),

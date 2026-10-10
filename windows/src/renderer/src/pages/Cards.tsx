@@ -152,9 +152,9 @@ export function Cards() {
                     <thead>
                       <tr>
                         <th>Statement</th>
-                        <th>Pay day</th>
-                        <th className="r">Charged</th>
-                        <th className="r">Paid</th>
+                        <th className="hide-sm">Pay day</th>
+                        <th className="r hide-sm">Charged</th>
+                        <th className="r hide-sm">Paid</th>
                         <th className="r">Left to pay</th>
                         <th>Status</th>
                         <th aria-label="Actions" />
@@ -174,11 +174,14 @@ export function Cards() {
                                 <div style={{ fontWeight: 560 }}>
                                   {dateLabel(s.start, false)} – {dateLabel(s.close)}
                                 </div>
-                                <div className="sub-line">{s.count} charge{s.count === 1 ? '' : 's'}</div>
+                                <div className="sub-line">
+                                  {s.count} charge{s.count === 1 ? '' : 's'}
+                                  <span className="show-sm"> · pay day {dateLabel(s.due, false)}</span>
+                                </div>
                               </td>
-                              <td>{dateLabel(s.due)}</td>
-                              <td className="r">{fmt.money(s.charged, { currency: card.currency })}</td>
-                              <td className="r">{s.paid ? fmt.money(s.paid, { currency: card.currency }) : <span className="faint">—</span>}</td>
+                              <td className="hide-sm">{dateLabel(s.due)}</td>
+                              <td className="r hide-sm">{fmt.money(s.charged, { currency: card.currency })}</td>
+                              <td className="r hide-sm">{s.paid ? fmt.money(s.paid, { currency: card.currency }) : <span className="faint">—</span>}</td>
                               <td className="r" style={{ fontWeight: 600 }}>{fmt.money(s.remaining, { currency: card.currency })}</td>
                               <td>
                                 <StatementPill s={s} />

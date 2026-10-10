@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { FileUp, PencilLine, Sparkles } from 'lucide-react'
+import { FileUp, Link2, PencilLine, Sparkles } from 'lucide-react'
 import { exampleData } from '@/core/example'
 import { useNav } from '@/nav'
 import { useApp } from '@/store'
 import { CurrencySelect } from '@/components/CurrencySelect'
 import { ImportDialog } from '@/components/HistoryDialogs'
 import { Logo } from '@/components/Logo'
+import { LinkDialog } from '@/components/SyncCard'
 import { Field } from '@/components/ui'
 
 export function Welcome() {
@@ -17,6 +18,7 @@ export function Welcome() {
   const [currency, setCurrency] = useState(settings.baseCurrency)
   const [name, setName] = useState(settings.name)
   const [importing, setImporting] = useState(false)
+  const [linking, setLinking] = useState(false)
 
   const start = (page: 'overview' | 'holdings' | 'history') => {
     mutate((d) => {
@@ -46,6 +48,17 @@ export function Welcome() {
           </Field>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {window.api.platform === 'web' && (
+            <button className="choice" onClick={() => setLinking(true)}>
+              <div className="ic">
+                <Link2 size={19} />
+              </div>
+              <div>
+                <b>Link to Moneta on my computer</b>
+                <span>Type the code from Settings → Sync on your computer. Your data appears here and stays in sync.</span>
+              </div>
+            </button>
+          )}
           <button className="choice" onClick={() => start('holdings')}>
             <div className="ic">
               <PencilLine size={19} />
@@ -84,6 +97,7 @@ export function Welcome() {
           </button>
         </div>
       </div>
+      {linking && <LinkDialog onClose={() => setLinking(false)} onLinked={() => go('overview')} />}
       {importing && (
         <ImportDialog
           onClose={() => {

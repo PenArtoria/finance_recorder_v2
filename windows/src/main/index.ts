@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import type { FileFilter } from '@shared/types'
 import { fetchFx, fetchQuotes, searchSymbols } from './quotes'
-import { dataInfo, hasDataFileIn, migrateFromNestEgg, moveDataTo, primeWatch, readData, watchData, writeData } from './storage'
+import { dataInfo, hasDataFileIn, kvGet, kvSet, migrateFromNestEgg, moveDataTo, primeWatch, readData, watchData, writeData } from './storage'
 
 const TITLEBAR_HEIGHT = 44
 const titleBarColors = (dark: boolean) =>
@@ -117,6 +117,9 @@ ipcMain.handle('data:reset-folder', async () => {
   startWatching()
   return info
 })
+
+ipcMain.handle('kv:get', (_e, key: string) => kvGet(String(key)))
+ipcMain.handle('kv:set', (_e, key: string, value: string | null) => kvSet(String(key), value == null ? null : String(value)))
 
 ipcMain.handle('quotes:fetch', (_e, symbols: string[]) => fetchQuotes(symbols))
 ipcMain.handle('quotes:search', (_e, query: string) => searchSymbols(query))

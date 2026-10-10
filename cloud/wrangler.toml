@@ -1,0 +1,13 @@
+name = "moneta"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# The phone app. Requests for files are served from here; /api/* goes to the Worker.
+[assets]
+directory = "../ios/dist"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "moneta-sync"
+database_id = "fe4d83c6-599c-4ccb-ac3a-143ddd80bd7b"
