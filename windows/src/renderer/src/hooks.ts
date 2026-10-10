@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { computePortfolio, type Portfolio } from './core/calc'
-import { formatMoney, formatPrice, formatQty, type MoneyOptions } from './core/money'
+import { formatMoney, formatPrice, formatQty, formatShort, type MoneyOptions } from './core/money'
 import { useApp } from './store'
 
 export function usePortfolio(): Portfolio {
@@ -19,6 +19,9 @@ export function useFmt() {
       money: (v: number | null | undefined, opts: MoneyOptions & { currency?: string } = {}) =>
         formatMoney(v, opts.currency ?? base, { hide, ...opts }),
       price: (v: number | null | undefined, currency: string) => formatPrice(v, currency, hide),
+      /** Compact amount for charts and calendar cells. */
+      short: (v: number | null | undefined, opts: { currency?: string; sign?: boolean; whole?: boolean } = {}) =>
+        formatShort(v, opts.currency ?? base, { hide, sign: opts.sign, whole: opts.whole }),
       qty: (v: number) => formatQty(v, hide)
     }),
     [base, hide]

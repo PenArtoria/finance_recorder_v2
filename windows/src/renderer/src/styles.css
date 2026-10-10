@@ -2657,6 +2657,7 @@ html.web .titlebar-drag {
 
   .cal-amt {
     font-size: 10px;
+    letter-spacing: -0.01em;
   }
 
   .heat-key {
@@ -2723,5 +2724,142 @@ html.web .titlebar-drag {
   .donut-wrap {
     grid-template-columns: minmax(0, 1fr);
     justify-items: center;
+  }
+}
+
+.donut-center .label b.long {
+  font-size: 14px;
+}
+
+/* ---------- income ---------- */
+
+.cal-amts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.cal-amt.in {
+  color: var(--good);
+}
+
+.cat-ic.in {
+  color: var(--good);
+  background: var(--good-soft);
+  border-color: transparent;
+}
+
+.hbar.in {
+  background: var(--good);
+}
+
+.day-head .num {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.inv-cards {
+  display: none;
+}
+
+/* Phone: investments as cards instead of a wide table. */
+@media (max-width: 760px) {
+  .inv-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px 12px 14px;
+  }
+
+  .inv-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    cursor: pointer;
+  }
+
+  .inv-card:active {
+    background: var(--surface-2);
+  }
+
+  .inv-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .inv-name {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .inv-name .asset-name {
+    max-width: none;
+    white-space: nowrap;
+  }
+
+  .inv-value {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    flex: none;
+    text-align: right;
+  }
+
+  .inv-value b {
+    font-size: 16px;
+    font-weight: 650;
+  }
+
+  .inv-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  .inv-stats > div {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .inv-stats span:first-child {
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+
+  .inv-stats b {
+    font-size: 13px;
+    font-weight: 560;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .inv-buy {
+    justify-content: flex-end;
+  }
+
+  .inv-buy .btn {
+    width: 100%;
+  }
+
+  .inv-total {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 4px 0;
+    font-weight: 600;
   }
 }

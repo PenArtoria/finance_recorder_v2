@@ -9,7 +9,7 @@ const NAV: { page: Page; label: string; icon: typeof Wallet }[] = [
   { page: 'overview', label: 'Overview', icon: LayoutDashboard },
   { page: 'holdings', label: 'Holdings', icon: LineChart },
   { page: 'cash', label: 'Cash buckets', icon: Wallet },
-  { page: 'spending', label: 'Spending', icon: CalendarDays },
+  { page: 'spending', label: 'Spending & income', icon: CalendarDays },
   { page: 'cards', label: 'Credit cards', icon: CreditCard },
   { page: 'goals', label: 'Goals', icon: Goal },
   { page: 'history', label: 'Monthly history', icon: History }

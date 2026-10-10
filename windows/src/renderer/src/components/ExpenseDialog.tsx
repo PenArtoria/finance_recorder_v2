@@ -1,10 +1,16 @@
 import { useMemo, useState } from 'react'
 import {
+  Award,
+  Briefcase,
   Bus,
   Ellipsis,
   Gift,
   GraduationCap,
+  HandCoins,
   HeartPulse,
+  Laptop,
+  PiggyBank,
+  RotateCcw,
   House,
   Plane,
   Receipt,
@@ -21,7 +27,7 @@ import { parseSourceKey, sourceCurrency, sourceKey, sourceLabel } from '@/core/c
 import { uid } from '@/core/data'
 import { dueFor, statementFor } from '@/core/cards'
 import { convert, formatMoney, symbolFor } from '@/core/money'
-import { applyExpense, frequentCurrencies, SPEND_CATEGORIES } from '@/core/spending'
+import { applyExpense, frequentCurrencies, INCOME_CATEGORIES, SPEND_CATEGORIES } from '@/core/spending'
 import { dateLabel, todayIso } from '@/core/trades'
 import { useApp } from '@/store'
 import { CurrencySelect } from './CurrencySelect'
@@ -40,7 +46,14 @@ export const CATEGORY_ICON: Record<string, LucideIcon> = {
   travel: Plane,
   education: GraduationCap,
   gifts: Gift,
-  other: Ellipsis
+  other: Ellipsis,
+  salary: Briefcase,
+  bonus: Award,
+  side: Laptop,
+  dividend: PiggyBank,
+  refund: RotateCcw,
+  'gift-in': Gift,
+  'other-in': HandCoins
 }
 
 export function CategoryIcon({ category, size = 16 }: { category: string; size?: number }) {
@@ -51,6 +64,7 @@ export function CategoryIcon({ category, size = 16 }: { category: string; size?:
 const LAST_SOURCE_KEY = 'moneta.lastSpendSource'
 const LAST_CURRENCY_KEY = 'moneta.lastSpendCurrency'
 const LAST_CARD_KEY = 'moneta.lastSpendCard'
+const LAST_INCOME_KEY = 'moneta.lastIncomeInto'
 
 function remembered(key: string): string {
   try {
@@ -68,7 +82,20 @@ function remember(key: string, value: string) {
   }
 }
 
-export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Expense; date?: string; cardId?: string; onClose: () => void }) {
+export function ExpenseDialog({
+  expense,
+  date,
+  cardId,
+  kind,
+  onClose
+}: {
+  expense?: Expense
+  date?: string
+  cardId?: string
+  /** Start as spending (default) or income. */
+  kind?: 'spend' | 'income'
+  onClose: () => void
+}) {
   const data = useApp((s) => s.data)
   const mutate = useApp((s) => s.mutate)
   const toast = useApp((s) => s.toast)
@@ -99,18 +126,35 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
     return saved && /^[A-Z]{3}$/.test(saved) ? saved : frequent[0] ?? base
   }
 
+  const [entryKind, setEntryKind] = useState<'spend' | 'income'>(expense ? (expense.kind === 'income' ? 'income' : 'spend') : kind ?? 'spend')
+  const income = entryKind === 'income'
   const [method, setMethod] = useState<'cash' | 'card'>(expense ? (expense.cardId ? 'card' : 'cash') : cardId ? 'card' : 'cash')
-  const [srcKey, setSrcKey] = useState(initialSource)
+  const initialInto = () => {
+    const saved = remembered(LAST_INCOME_KEY)
+    const src = parseSourceKey(saved)
+    if (src && sourceCurrency(data, src)) return saved
+    const account = data.holdings.find((h) => h.type === 'cash' || h.type === 'deposit')
+    return account ? sourceKey({ kind: 'account', id: account.id }) : defaultBucket()
+  }
+  const [srcKey, setSrcKey] = useState(() => (!expense && kind === 'income' ? initialInto() : initialSource()))
   const [card, setCard] = useState(initialCard)
   const [currency, setCurrency] = useState(initialCurrency)
   const [amount, setAmount] = useState<number | null>(expense?.amount ?? null)
-  const [category, setCategory] = useState(expense?.category ?? 'food')
+  const [category, setCategory] = useState(expense?.category ?? (kind === 'income' ? 'salary' : 'food'))
+  const categories = income ? INCOME_CATEGORIES : SPEND_CATEGORIES
+
+  const switchKind = (k: 'spend' | 'income') => {
+    setEntryKind(k)
+    const list = k === 'income' ? INCOME_CATEGORIES : SPEND_CATEGORIES
+    if (!list.some((c) => c.key === category)) setCategory(list[0].key)
+    if (!expense) setSrcKey(k === 'income' ? initialInto() : initialSource())
+  }
   const [day, setDay] = useState(expense?.date ?? date ?? todayIso())
   const [note, setNote] = useState(expense?.note ?? '')
   const [tried, setTried] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const byCard = method === 'card'
+  const byCard = !income && method === 'card'
   const theCard = byCard ? data.cards.find((c) => c.id === card) : undefined
   // With a card, the source is only the bucket whose budget it uses.
   const src = parseSourceKey(srcKey)
@@ -124,12 +168,20 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
   // What's left in the bucket or account after this entry.
   const remaining = useMemo(() => {
     if (!effectiveSrc || !srcCcy || inSrc == null) return null
-    const now = effectiveSrc.kind === 'bucket' ? data.buckets.find((b) => b.id === effectiveSrc.id)?.amount : data.holdings.find((h) => h.id === effectiveSrc.id)?.quantity
+    const holding = effectiveSrc.kind === 'account' ? data.holdings.find((h) => h.id === effectiveSrc.id) : undefined
+    const now =
+      effectiveSrc.kind === 'bucket'
+        ? data.buckets.find((b) => b.id === effectiveSrc.id)?.amount
+        : holding && (holding.type === 'property' || holding.type === 'pension' || holding.type === 'other')
+          ? holding.manualPrice ?? 0
+          : holding?.quantity
     if (now == null) return null
+    // When editing, take the entry's old effect off first.
     const sameSource = expense?.source && sourceKey(expense.source) === sourceKey(effectiveSrc)
-    const back = sameSource ? convert(expense!.amount, expense!.currency, srcCcy, rates) ?? 0 : 0
-    return now + back - inSrc
-  }, [effectiveSrc, srcCcy, inSrc, data, expense, rates])
+    const old = sameSource ? convert(expense!.amount, expense!.currency, srcCcy, rates) ?? 0 : 0
+    const undo = expense?.kind === 'income' ? -old : old
+    return now + undo + (income ? inSrc : -inSrc)
+  }, [effectiveSrc, srcCcy, inSrc, data, expense, rates, income])
 
   const valid = amount != null && amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(day) && (!byCard || !!theCard)
 
@@ -140,18 +192,19 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
     const unchanged = expense && expense.amount === amount && expense.currency === currency
     const next: Expense = {
       id: expense?.id ?? uid('e'),
+      ...(income ? { kind: 'income' as const } : {}),
       date: day,
       amount,
       currency,
       category,
       note: note.trim() || undefined,
       source: effectiveSrc,
-      cardId: theCard?.id ?? null,
+      cardId: income ? null : theCard?.id ?? null,
       createdAt: expense?.createdAt ?? Date.now()
     }
     const usd = unchanged && expense?.usd != null ? expense.usd : convert(amount, currency, 'USD', rates)
     if (usd != null) next.usd = +usd.toFixed(6)
-    if (theCard) {
+    if (theCard && !income) {
       const keep = unchanged && expense?.cardId === theCard.id && expense.cardAmount != null
       next.cardAmount = keep ? expense!.cardAmount : +(convert(amount, currency, theCard.currency, rates) ?? amount).toFixed(6)
     }
@@ -163,9 +216,17 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
       d.expenses = old ? d.expenses.map((e) => (e.id === old.id ? next : e)) : [...d.expenses, next]
     })
     remember(LAST_CURRENCY_KEY, currency)
-    if (byCard) remember(LAST_CARD_KEY, card)
+    if (income) remember(LAST_INCOME_KEY, srcKey)
+    else if (byCard) remember(LAST_CARD_KEY, card)
     else remember(LAST_SOURCE_KEY, srcKey)
-    toast(editing ? 'Spending updated.' : `${formatMoney(amount, currency)} noted for ${dateLabel(day, false)}.`, 'success')
+    toast(
+      editing
+        ? income
+          ? 'Income updated.'
+          : 'Spending updated.'
+        : `${income ? 'Income of ' : ''}${formatMoney(amount, currency)} noted for ${dateLabel(day, false)}.`,
+      'success'
+    )
     onClose()
   }
 
@@ -187,8 +248,12 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
   return (
     <>
       <Dialog
-        title={editing ? 'Edit spending' : 'Add spending'}
-        sub="Any currency. It’s converted for you and comes out of the bucket you pick."
+        title={editing ? (income ? 'Edit income' : 'Edit spending') : income ? 'Add income' : 'Add spending'}
+        sub={
+          income
+            ? 'Salary, dividends, refunds… in any currency. It’s converted for you and added where you pick.'
+            : 'Any currency. It’s converted for you and comes out of the bucket you pick.'
+        }
         onClose={onClose}
         footer={
           <>
@@ -201,12 +266,21 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
               Cancel
             </button>
             <button className="btn primary" onClick={save}>
-              {editing ? 'Save' : 'Add spending'}
+              {editing ? 'Save' : income ? 'Add income' : 'Add spending'}
             </button>
           </>
         }
       >
         <div className="form">
+          <Segmented
+            value={entryKind}
+            onChange={switchKind}
+            label="Money out or in"
+            options={[
+              { value: 'spend', label: 'Spending' },
+              { value: 'income', label: 'Income' }
+            ]}
+          />
           <div className="form-row">
             <Field label="Amount" hint={conversion ?? undefined} error={tried && !(amount && amount > 0) ? 'Enter how much you spent.' : undefined}>
               <NumberInput value={amount} onChange={setAmount} prefix={symbolFor(currency)} placeholder="0" autoFocus />
@@ -217,7 +291,7 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
           </div>
           <Field label="Category">
             <div className="cat-grid" role="radiogroup" aria-label="Category">
-              {SPEND_CATEGORIES.map((c) => (
+              {categories.map((c) => (
                 <button
                   key={c.key}
                   type="button"
@@ -232,6 +306,7 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
               ))}
             </div>
           </Field>
+          {!income && (
           <Segmented
             value={method}
             onChange={setMethod}
@@ -241,23 +316,32 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
               { value: 'card', label: 'Credit card' }
             ]}
           />
+          )}
           {!byCard && (
             <Field
-              label="Taken from"
+              label={income ? 'Paid into' : 'Taken from'}
               hint={
                 remaining != null && effectiveSrc ? (
                   <span className={remaining < 0 ? 'bad' : undefined}>
                     {currency !== srcCcy && inSrc != null ? `${formatMoney(inSrc, srcCcy!)} · ` : ''}
-                    {sourceLabel(data, effectiveSrc)} will have {formatMoney(remaining, srcCcy!)} left.
+                    {sourceLabel(data, effectiveSrc)} will have {formatMoney(remaining, srcCcy!)}
+                    {income ? '.' : ' left.'}
                   </span>
                 ) : effectiveSrc ? (
-                  `Comes out of ${sourceLabel(data, effectiveSrc)}.`
+                  income ? `Goes into ${sourceLabel(data, effectiveSrc)}.` : `Comes out of ${sourceLabel(data, effectiveSrc)}.`
+                ) : income ? (
+                  'No balance changes.'
                 ) : (
                   'Nothing is taken from your balances.'
                 )
               }
             >
-              <MoneySourceSelect value={srcKey} onChange={setSrcKey} noneLabel="Not from a tracked balance" />
+              <MoneySourceSelect
+                value={srcKey}
+                onChange={setSrcKey}
+                assets={income}
+                noneLabel={income ? 'Not into a tracked balance' : 'Not from a tracked balance'}
+              />
             </Field>
           )}
           {byCard && (
@@ -309,16 +393,20 @@ export function ExpenseDialog({ expense, date, cardId, onClose }: { expense?: Ex
               <input className="input" type="date" value={day} onChange={(e) => setDay(e.target.value)} />
             </Field>
             <Field label="Note (optional)">
-              <input className="input" value={note} placeholder="e.g. Lunch, Amazon order" onChange={(e) => setNote(e.target.value)} />
+              <input className="input" value={note} placeholder={income ? 'e.g. October salary' : 'e.g. Lunch, Amazon order'} onChange={(e) => setNote(e.target.value)} />
             </Field>
           </div>
         </div>
       </Dialog>
       {confirmDelete && expense && (
         <ConfirmDialog
-          title="Remove this spending?"
+          title={expense.kind === 'income' ? 'Remove this income?' : 'Remove this spending?'}
           body={
-            expense.cardId
+            expense.kind === 'income'
+              ? expense.source
+                ? `${formatMoney(expense.amount, expense.currency)} comes back out of ${sourceLabel(data, expense.source)}.`
+                : 'The entry is removed.'
+              : expense.cardId
               ? 'The charge is removed from the card' + (expense.source ? ` and its budget goes back to ${sourceLabel(data, expense.source)}.` : '.')
               : expense.source
                 ? `${formatMoney(expense.amount, expense.currency)} goes back to ${sourceLabel(data, expense.source)}.`

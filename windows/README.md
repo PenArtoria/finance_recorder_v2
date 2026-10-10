@@ -18,10 +18,11 @@ and the first start copies its data across. The old `%APPDATA%\Nest Egg` folder 
   Adding a ticker you already own records a buy on that holding instead of creating a second one.
 - **Cash buckets**: split the money in your bank accounts by purpose. A bucket inside an account is counted once, as part
   of that account. Unassigned money is whatever isn't in a bucket yet.
-- **Spending**: note what you spend each day in any currency, with a category. The currencies you use most are listed
+- **Spending & income**: note what you spend each day in any currency, with a category. The currencies you use most are listed
   first, and each entry is converted to your main currency at that day's exchange rate. Paid in cash or by bank, it comes
-  out of the bucket you pick (and its bank account). A month calendar shows daily totals, with each day's entries and a
-  breakdown by category.
+  out of the bucket you pick (and its bank account). Income (salary, dividends, refunds…) is noted the same way and paid
+  into a bank account, a bucket or another asset. A month calendar shows each day's income and spending, with the day's
+  entries and a breakdown by category.
 - **Credit cards**: give each card its closing day (締め日), pay day (支払日) and the account that pays it. Card spending
   is grouped into statements with their pay days, the bill is set aside in that account, and on the pay day Moneta can
   record the payment automatically.

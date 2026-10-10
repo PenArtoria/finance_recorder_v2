@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { bankAccounts, linkedAccount, sourceKey, unassignedIn } from '@/core/cash'
 import { ratesOf } from '@/core/calc'
 import { formatMoney } from '@/core/money'
+import { isValued } from '@/core/trades'
 import { useApp } from '@/store'
 
 /** A select over every bucket and bank account, plus a "none" choice. Values are source keys ("bucket:id"). */
@@ -10,13 +11,16 @@ export function MoneySourceSelect({
   onChange,
   noneLabel,
   id,
-  exclude
+  exclude,
+  assets
 }: {
   value: string
   onChange: (key: string) => void
   noneLabel: string
   id?: string
   exclude?: string
+  /** Also offer assets valued as a whole (e.g. a pension), for income paid into them. */
+  assets?: boolean
 }) {
   const data = useApp((s) => s.data)
   const hide = data.settings.hideAmounts
@@ -47,6 +51,17 @@ export function MoneySourceSelect({
               {a.name} ({money(unassignedIn(data, a.id, rates), a.currency)} unassigned)
             </option>
           ))}
+        </optgroup>
+      )}
+      {assets && data.holdings.some((h) => isValued(h.type)) && (
+        <optgroup label="Other assets">
+          {data.holdings
+            .filter((h) => isValued(h.type))
+            .map((h) => (
+              <option key={h.id} value={sourceKey({ kind: 'account', id: h.id })}>
+                {h.name} ({money(h.manualPrice ?? 0, h.currency)})
+              </option>
+            ))}
         </optgroup>
       )}
     </select>

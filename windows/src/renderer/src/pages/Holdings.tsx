@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Landmark, LineChart, Plus, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ArrowDownLeft, Landmark, LineChart, Plus, RefreshCw } from 'lucide-react'
 import type { Category, Holding } from '@shared/types'
 import { CATEGORY_LABEL, TYPE_LABEL, monthChange } from '@/core/calc'
 import { formatPct } from '@/core/money'
@@ -8,6 +8,7 @@ import { timeAgo, useFmt, usePortfolio } from '@/hooks'
 import { useApp } from '@/store'
 import { HoldingDialog, type HoldingKind } from '@/components/HoldingDialog'
 import { TradeDialog } from '@/components/TradeDialog'
+import { ExpenseDialog } from '@/components/ExpenseDialog'
 import { AssetMark, Card, CardHead, Delta, Empty, PageHead, PctDelta, Segmented, Tile } from '@/components/ui'
 import { ExampleBanner } from './shared'
 
@@ -22,6 +23,7 @@ export function Holdings() {
   const [editing, setEditing] = useState<Holding | null>(null)
   const [adding, setAdding] = useState<HoldingKind | null>(null)
   const [buying, setBuying] = useState<Holding | null>(null)
+  const [income, setIncome] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
 
   const change = useMemo(() => monthChange(data, p), [data, p])
@@ -133,7 +135,7 @@ export function Holdings() {
             {invest.length === 0 ? (
               <p className="muted" style={{ padding: '6px 20px 20px' }}>No investments yet.</p>
             ) : (
-              <div className="table-wrap">
+              <div className="table-wrap hide-sm">
                 <table className="table">
                   <thead>
                     <tr>
@@ -250,6 +252,77 @@ export function Holdings() {
                 </table>
               </div>
             )}
+            {invest.length > 0 && (
+              <div className="inv-cards">
+                {rows.map((r) => {
+                  const h = r.holding
+                  const m = monthDelta.get(h.id)
+                  const avg = averageCost(h)
+                  return (
+                    <div key={h.id} className="inv-card" role="button" tabIndex={0} onClick={() => setEditing(h)} onKeyDown={(e) => e.key === 'Enter' && setEditing(h)}>
+                      <div className="inv-top">
+                        <AssetMark symbol={h.symbol} name={h.name} />
+                        <div className="asset-text inv-name">
+                          <span className="asset-sym">
+                            <span className="asset-sym-text">{h.symbol || h.name}</span>
+                          </span>
+                          <span className="asset-name">
+                            {TYPE_LABEL[h.type]} · {h.symbol ? h.name : h.account || 'Price entered by hand'}
+                          </span>
+                        </div>
+                        <div className="inv-value">
+                          <b className="num">{fmt.money(r.value)}</b>
+                          {r.pnl != null ? (
+                            <Delta value={r.pnl} text={`${fmt.money(r.pnl, { sign: true })} (${formatPct(r.pnlPct, true, 1)})`} size={12} />
+                          ) : (
+                            <span className="sub-line">No cost recorded</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="inv-stats">
+                        <div>
+                          <span>Units</span>
+                          <b className="num">{fmt.qty(h.quantity)}</b>
+                        </div>
+                        <div>
+                          <span>Price</span>
+                          <b className="num">{fmt.price(r.price, r.priceCurrency)}</b>
+                        </div>
+                        <div>
+                          <span>Today</span>
+                          <b>
+                            <PctDelta value={r.dayPct} />
+                          </b>
+                        </div>
+                        <div>
+                          <span>This month</span>
+                          <b>{m ? <Delta value={m.delta} text={fmt.short(m.delta, { sign: true })} size={12} /> : <span className="faint">—</span>}</b>
+                        </div>
+                        <div>
+                          <span>Average cost</span>
+                          <b className="num">{avg != null ? fmt.price(avg, h.currency) : '—'}</b>
+                        </div>
+                        <div className="inv-buy">
+                          <button
+                            className="btn sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setBuying(h)
+                            }}
+                          >
+                            <Plus size={14} /> Buy more
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                <div className="inv-total">
+                  <span>{filter === 'all' ? 'Total' : CATEGORY_LABEL[filter]}</span>
+                  <b className="num">{fmt.money(shownTotal)}</b>
+                </div>
+              </div>
+            )}
           </Card>
 
           <Card flush>
@@ -258,9 +331,16 @@ export function Holdings() {
                 <div className="card-title">Bank accounts</div>
                 <div className="card-sub">Your buckets split these balances by purpose. Unassigned money isn’t in any bucket yet.</div>
               </div>
-              <button className="btn sm" onClick={() => setAdding('bank')}>
-                <Plus size={14} /> Add
-              </button>
+              <div className="actions">
+                {p.accounts.length > 0 && (
+                  <button className="btn sm" onClick={() => setIncome(true)}>
+                    <ArrowDownLeft size={14} /> Add income
+                  </button>
+                )}
+                <button className="btn sm" onClick={() => setAdding('bank')}>
+                  <Plus size={14} /> Add
+                </button>
+              </div>
             </div>
             {p.accounts.length === 0 ? (
               <p className="muted" style={{ padding: '6px 20px 20px' }}>
@@ -335,7 +415,7 @@ export function Holdings() {
                     <tr>
                       <th>Asset</th>
                       <th className="r">Worth</th>
-                      <th className="r">Gain or loss</th>
+                      <th className="r hide-sm">Gain or loss</th>
                       <th className="r">Value ({fmt.base})</th>
                     </tr>
                   </thead>
@@ -354,7 +434,7 @@ export function Holdings() {
                             </div>
                           </td>
                           <td className="r">{fmt.money(r.valueLocal, { currency: h.currency })}</td>
-                          <td className="r">{r.pnl != null ? <Delta value={r.pnl} text={fmt.money(r.pnl, { sign: true })} size={13} /> : <span className="faint">—</span>}</td>
+                          <td className="r hide-sm">{r.pnl != null ? <Delta value={r.pnl} text={fmt.money(r.pnl, { sign: true })} size={13} /> : <span className="faint">—</span>}</td>
                           <td className="r" style={{ fontWeight: 600 }}>{fmt.money(r.value)}</td>
                         </tr>
                       )
@@ -372,7 +452,7 @@ export function Holdings() {
 
           {invest.some((r) => (r.value ?? 0) > 0) && (
             <Card>
-              <CardHead title="Allocation by investment" sub={`Share of your ${fmt.money(p.totals.investments, { compact: true })} invested`} />
+              <CardHead title="Allocation by investment" sub={`Share of your ${fmt.short(p.totals.investments)} invested`} />
               <div className="list">
                 {invest
                   .filter((r) => r.value != null && r.value > 0)
@@ -396,6 +476,7 @@ export function Holdings() {
       {adding && <HoldingDialog kind={adding} onClose={() => setAdding(null)} />}
       {editing && <HoldingDialog holding={editing} onClose={() => setEditing(null)} />}
       {buying && <TradeDialog holding={buying} onClose={() => setBuying(null)} />}
+      {income && <ExpenseDialog kind="income" onClose={() => setIncome(false)} />}
     </div>
   )
 }
