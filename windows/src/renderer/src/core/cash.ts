@@ -1,7 +1,7 @@
 import type { AppData, CashBucket, Holding, MoneySource } from '@shared/types'
 import { reservedFor } from './cards'
 import { convert, type Rates } from './money'
-import { isBalance } from './trades'
+import { isBalance, isValued } from './trades'
 
 // Moving money in and out of buckets and bank accounts.
 // A bucket linked to an account is a slice of that account's balance, so money that
@@ -33,7 +33,8 @@ export function sourceLabel(data: AppData, src: MoneySource | null | undefined):
     return a ? `${b.name} · ${a.name}` : b.name
   }
   const a = data.holdings.find((h) => h.id === src.id)
-  return a ? `${a.name} (unassigned)` : 'Deleted account'
+  if (!a) return 'Deleted account'
+  return isBalance(a.type) ? `${a.name} (unassigned)` : a.name
 }
 
 export function sourceExists(data: AppData, src: MoneySource | null | undefined): boolean {
@@ -55,7 +56,10 @@ export function moveMoney(draft: AppData, src: MoneySource, delta: number, rates
   const fix = (n: number) => +n.toFixed(8)
   if (src.kind === 'account') {
     const a = draft.holdings.find((h) => h.id === src.id)
-    if (a) a.quantity = fix(a.quantity + delta)
+    if (!a) return
+    // Assets valued as a whole (a pension pot) grow in value; bank accounts in balance.
+    if (isValued(a.type)) a.manualPrice = fix((a.manualPrice ?? 0) + delta)
+    else a.quantity = fix(a.quantity + delta)
     return
   }
   const b = draft.buckets.find((x) => x.id === src.id)

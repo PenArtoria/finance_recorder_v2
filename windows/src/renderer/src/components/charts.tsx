@@ -60,7 +60,7 @@ function useAxis() {
       tickLine: false,
       axisLine: false,
       tick: { fill: c.ink3, fontSize: AXIS_FONT },
-      width: 64,
+      width: 72,
       tickFormatter: (v: number) => (fmt.hide ? '••' : formatAxis(v, fmt.base))
     }
   }
@@ -177,7 +177,7 @@ export function AllocationDonut({ slices, centerLabel }: { slices: Slice[]; cent
           </PieChart>
           <div className="label">
             <div>
-              <b>{fmt.money(hot ? hot.value : total, { compact: true })}</b>
+              <b className={fmt.short(hot ? hot.value : total).length > 8 ? 'long' : undefined}>{fmt.short(hot ? hot.value : total)}</b>
               <small>{hot ? `${hot.label} · ${formatPct(hot.value / total, false, 0)}` : centerLabel}</small>
             </div>
           </div>

@@ -25,15 +25,36 @@ export const SPEND_CATEGORIES: SpendCategory[] = [
   { key: 'other', label: 'Other' }
 ]
 
-export const categoryLabel = (key: string) => SPEND_CATEGORIES.find((c) => c.key === key)?.label ?? 'Other'
+export const INCOME_CATEGORIES: SpendCategory[] = [
+  { key: 'salary', label: 'Salary' },
+  { key: 'bonus', label: 'Bonus' },
+  { key: 'side', label: 'Side income' },
+  { key: 'dividend', label: 'Dividends & interest' },
+  { key: 'refund', label: 'Refund' },
+  { key: 'gift-in', label: 'Gift received' },
+  { key: 'other-in', label: 'Other income' }
+]
+
+export const categoryLabel = (key: string) =>
+  SPEND_CATEGORIES.find((c) => c.key === key)?.label ?? INCOME_CATEGORIES.find((c) => c.key === key)?.label ?? 'Other'
+
+export const isIncome = (e: Expense) => e.kind === 'income'
 
 /**
- * Takes the expense out of its source (sign 1) or puts it back (sign −1).
- * A card charge only lowers the bucket's budget: the bank pays later, on the card's pay day.
+ * Applies an entry to its bucket or account (sign 1) or undoes it (sign −1).
+ * Spending takes money out; income puts it in. A card charge only lowers the
+ * bucket's budget: the bank pays later, on the card's pay day.
  */
 export function applyExpense(draft: AppData, e: Expense, sign: 1 | -1, rates: Rates) {
   if (!e.source) return
   const src = e.source
+  if (isIncome(e)) {
+    const ccy =
+      src.kind === 'bucket' ? draft.buckets.find((b) => b.id === src.id)?.currency : draft.holdings.find((h) => h.id === src.id)?.currency
+    if (!ccy) return
+    moveMoney(draft, src, sign * (convert(e.amount, e.currency, ccy, rates) ?? e.amount), rates)
+    return
+  }
   if (e.cardId) {
     if (src.kind !== 'bucket') return
     const b = draft.buckets.find((x) => x.id === src.id)
@@ -74,15 +95,29 @@ export function inBase(e: Expense, base: string, rates: Rates): number {
   return convert(e.amount, e.currency, base, rates) ?? 0
 }
 
+/** Spending per day, in the base currency. Income is left out. */
 export function dailyTotals(expenses: Expense[], base: string, rates: Rates): Map<string, number> {
   const out = new Map<string, number>()
-  for (const e of expenses) out.set(e.date, (out.get(e.date) ?? 0) + inBase(e, base, rates))
+  for (const e of expenses) if (!isIncome(e)) out.set(e.date, (out.get(e.date) ?? 0) + inBase(e, base, rates))
   return out
 }
 
-export function byCategory(expenses: Expense[], base: string, rates: Rates): { key: string; label: string; total: number; count: number }[] {
+/** Income per day, in the base currency. */
+export function dailyIncome(entries: Expense[], base: string, rates: Rates): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const e of entries) if (isIncome(e)) out.set(e.date, (out.get(e.date) ?? 0) + inBase(e, base, rates))
+  return out
+}
+
+export function byCategory(
+  expenses: Expense[],
+  base: string,
+  rates: Rates,
+  kind: 'spend' | 'income' = 'spend'
+): { key: string; label: string; total: number; count: number }[] {
   const map = new Map<string, { total: number; count: number }>()
   for (const e of expenses) {
+    if ((e.kind ?? 'spend') !== kind) continue
     const cur = map.get(e.category) ?? { total: 0, count: 0 }
     cur.total += inBase(e, base, rates)
     cur.count++

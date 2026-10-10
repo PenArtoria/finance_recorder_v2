@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { ArrowRight, Plus, ReceiptText, RefreshCw, Target } from 'lucide-react'
 import { CATEGORIES, CATEGORY_LABEL, goalProgress, history, monthChange, monthKey, monthLabel } from '@/core/calc'
 import { nextBill, statementsOf } from '@/core/cards'
-import { byCategory, categoryLabel, dailyTotals, expensesIn } from '@/core/spending'
+import { byCategory, categoryLabel, dailyIncome, dailyTotals, expensesIn, isIncome } from '@/core/spending'
 import { dateLabel, todayIso } from '@/core/trades'
 import { formatPct } from '@/core/money'
 import { useChartColors, useFmt, usePortfolio } from '@/hooks'
@@ -49,6 +49,7 @@ export function Overview() {
     return {
       items,
       total: [...daily.values()].reduce((s, v) => s + v, 0),
+      income: [...dailyIncome(items, p.base, p.rates).values()].reduce((s, v) => s + v, 0),
       today: daily.get(todayIso()) ?? 0,
       top: byCategory(items, p.base, p.rates)[0]
     }
@@ -237,7 +238,7 @@ export function Overview() {
         </Card>
 
         <Card>
-          <CardHead title="Spending this month" sub={spent.items.length ? `${fmt.money(spent.today)} today` : undefined}>
+          <CardHead title="Spending & income" sub={spent.items.length ? `${fmt.money(spent.today)} spent today` : undefined}>
             <button className="btn ghost sm" onClick={() => go('spending')}>
               Calendar <ArrowRight size={14} />
             </button>
@@ -255,18 +256,26 @@ export function Overview() {
               <div className="goal-figures">
                 <span className="big num">{fmt.money(spent.total)}</span>
                 <span className="muted">
-                  in {monthLabel(monthKey(), 'long').split(' ')[0]}
+                  spent in {monthLabel(monthKey(), 'long').split(' ')[0]}
                   {spent.top ? ` · most on ${spent.top.label.toLowerCase()}` : ''}
                 </span>
+                {spent.income > 0 && (
+                  <span className="good num" style={{ fontWeight: 560 }}>
+                    {fmt.money(spent.income, { sign: true })} income
+                  </span>
+                )}
               </div>
               <div className="list">
                 {spent.items.slice(0, 4).map((e) => (
                   <div className="list-row" key={e.id} style={{ padding: '8px 0' }}>
-                    <span className="cat-ic">
+                    <span className={`cat-ic ${isIncome(e) ? 'in' : ''}`}>
                       <CategoryIcon category={e.category} size={15} />
                     </span>
                     <div className="grow title" style={{ fontWeight: 500 }}>{e.note || categoryLabel(e.category)}</div>
-                    <span className="num">−{fmt.money(e.amount, { currency: e.currency })}</span>
+                    <span className={`num ${isIncome(e) ? 'good' : ''}`}>
+                      {isIncome(e) ? '+' : '−'}
+                      {fmt.money(e.amount, { currency: e.currency })}
+                    </span>
                   </div>
                 ))}
               </div>

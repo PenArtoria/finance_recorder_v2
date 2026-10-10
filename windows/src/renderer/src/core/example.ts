@@ -142,6 +142,21 @@ export function exampleData(): AppData {
       source: { kind: 'bucket', id: 'ex-living' }, cardId: card.id, cardAmount: +(usd * RATES.HKD).toFixed(2), usd, createdAt: now
     })
   }
+  // Income: salary into HSBC on the 25th, and a dividend paid into Wise.
+  for (const month of [addMonths(thisMonth, -1), thisMonth]) {
+    if (`${month}-25` <= today) {
+      expenses.push({
+        id: `ex-salary-${month}`, kind: 'income', date: `${month}-25`, amount: 28000, currency: 'HKD', category: 'salary', note: 'Salary',
+        source: { kind: 'account', id: 'ex-hsbc' }, usd: +(28000 / RATES.HKD).toFixed(6), createdAt: now
+      })
+    }
+    if (`${month}-08` <= today) {
+      expenses.push({
+        id: `ex-div-${month}`, kind: 'income', date: `${month}-08`, amount: 18.4, currency: 'USD', category: 'dividend', note: 'RKLB dividend',
+        source: { kind: 'account', id: 'ex-wise' }, usd: 18.4, createdAt: now
+      })
+    }
+  }
   d.expenses = expenses
   d.cards = [card]
   // Bills whose pay day has passed were already paid by the bank.

@@ -1,6 +1,6 @@
 # Moneta
 
-A personal finance tracker: investments with live prices, bank accounts, cash buckets, daily spending, credit cards,
+A personal finance tracker: investments with live prices, bank accounts, cash buckets, daily spending and income, credit cards,
 goals and month-by-month net worth, in any currency.
 
 | Folder | Platform | Status |

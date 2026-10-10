@@ -202,14 +202,19 @@ export interface Settings {
 
 export interface Expense {
   id: string
+  /** Money out (spending, the default) or money in (salary, dividends, refunds…). */
+  kind?: 'spend' | 'income'
   /** YYYY-MM-DD */
   date: string
-  /** Positive amount spent, in `currency`. */
+  /** Positive amount spent or received, in `currency`. */
   amount: number
   currency: string
   category: string
   note?: string
-  /** Where the money came from. With a card, only the bucket's budget goes down; the bank pays on the card's pay day. */
+  /**
+   * Spending: where the money came from. With a card, only the bucket's budget goes down; the bank pays on the card's pay day.
+   * Income: where the money went (a bucket, a bank account or another asset).
+   */
   source?: MoneySource | null
   /** Credit card it was charged to. */
   cardId?: string | null

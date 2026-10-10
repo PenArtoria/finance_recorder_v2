@@ -32,10 +32,10 @@ export interface MoneyOptions {
   decimals?: number
 }
 
-/** Fraction digits a currency normally uses (JPY 0, USD 2, BHD 3). */
+/** Fraction digits shown for a currency: its usual digits (JPY 0, USD 2), never more than 2 (CLF has 4). */
 function currencyDigits(currency: string): number {
   try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits ?? 2
+    return Math.min(2, new Intl.NumberFormat('en-US', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits ?? 2)
   } catch {
     return 2
   }
@@ -104,7 +104,37 @@ export function formatQty(value: number, hide = false): string {
 }
 
 export function formatAxis(value: number, currency: string): string {
-  return formatMoney(value, currency, { compact: true, decimals: Math.abs(value) >= 10000 ? undefined : 0 })
+  return formatShort(value, currency)
+}
+
+/**
+ * A short amount for tight spaces (chart labels, calendar cells): $53.8K, ¥1.2M, CLF 223.
+ * Large values use K/M; small ones keep a decimal or two only when they matter.
+ */
+export function formatShort(value: number | null | undefined, currency: string, opts: { hide?: boolean; sign?: boolean; whole?: boolean } = {}): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  const sign = opts.sign ? (value > 0 ? '+' : value < 0 ? '−' : '') : value < 0 ? '−' : ''
+  if (opts.hide) return `${sign}${symbolFor(currency)}••`
+  const abs = Math.abs(value)
+  // `whole` drops cents below 1,000 (calendar cells): $25, $1.2K.
+  const digits = Math.min(currencyDigits(currency), abs >= 1000 ? 1 : opts.whole || abs >= 100 ? 0 : abs >= 10 ? 1 : 2)
+  try {
+    return (
+      sign +
+      formatter(`short|${currency}|${digits}|${abs >= 1000}`, () =>
+        new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency,
+          currencyDisplay: 'symbol',
+          notation: abs >= 1000 ? 'compact' : 'standard',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: digits
+        })
+      ).format(abs)
+    )
+  } catch {
+    return `${sign}${currency} ${Math.round(abs).toLocaleString('en-US')}`
+  }
 }
 
 /** Parses user-typed numbers like "1,234.5", "$1 234", "(500)". */

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ArrowLeftRight, Landmark, Pencil, Plus, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeftRight, Landmark, Pencil, Plus, Wallet } from 'lucide-react'
 import type { CashBucket } from '@shared/types'
 import { monthChange, previousSnapshot } from '@/core/calc'
 import { convert, formatPct } from '@/core/money'
@@ -8,6 +8,7 @@ import { useNav } from '@/nav'
 import { useApp } from '@/store'
 import { AdjustDialog, BucketDialog, TransferDialog } from '@/components/BucketDialogs'
 import { AllocationDonut } from '@/components/charts'
+import { ExpenseDialog } from '@/components/ExpenseDialog'
 import { HoldingDialog } from '@/components/HoldingDialog'
 import { Card, CardHead, Delta, Empty, PageHead, Progress } from '@/components/ui'
 import { ExampleBanner } from './shared'
@@ -23,6 +24,7 @@ export function Cash() {
   const [addingAccount, setAddingAccount] = useState(false)
   const [adjusting, setAdjusting] = useState<CashBucket | null>(null)
   const [moving, setMoving] = useState<string | null | undefined>(undefined)
+  const [income, setIncome] = useState(false)
 
   const change = useMemo(() => monthChange(data, p), [data, p])
   const prev = useMemo(() => previousSnapshot(data), [data])
@@ -39,6 +41,11 @@ export function Cash() {
   return (
     <div className="page">
       <PageHead title="Cash buckets" sub="Give every dollar a job. Buckets split the money in your bank accounts by what it’s for.">
+        {(data.buckets.length > 0 || p.accounts.length > 0) && (
+          <button className="btn" onClick={() => setIncome(true)}>
+            <ArrowDownLeft size={15} /> Add income
+          </button>
+        )}
         {data.buckets.length > 1 && (
           <button className="btn" onClick={() => setMoving(null)}>
             <ArrowLeftRight size={15} /> Move money
@@ -206,6 +213,7 @@ export function Cash() {
       {editing && <BucketDialog bucket={editing} onClose={() => setEditing(null)} />}
       {adjusting && <AdjustDialog bucket={adjusting} onClose={() => setAdjusting(null)} />}
       {moving !== undefined && <TransferDialog fromId={moving ?? undefined} onClose={() => setMoving(undefined)} />}
+      {income && <ExpenseDialog kind="income" onClose={() => setIncome(false)} />}
     </div>
   )
 }
