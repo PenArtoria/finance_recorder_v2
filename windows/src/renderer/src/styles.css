@@ -1033,6 +1033,10 @@ textarea.input {
   margin-right: auto;
 }
 
+.dialog-grip {
+  display: none;
+}
+
 @keyframes fade {
   from {
     opacity: 0;
@@ -2588,31 +2592,70 @@ html.web .titlebar-drag {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  /* Dialogs become sheets that rise from the bottom. */
+  /* Dialogs become sheets that rise from the bottom. They fill only the visible area
+     (--vvh/--vvt, set while one is open), so with the keyboard up the title and its close
+     button stay at the top, the buttons sit just above the keyboard and only the middle scrolls. */
   .overlay {
     padding: 0;
     place-items: end center;
+    top: var(--vvt, 0px);
+    bottom: auto;
+    height: var(--vvh, 100%);
+  }
+
+  html.modal-open .main {
+    overflow: hidden;
   }
 
   .dialog,
   .dialog.wide {
+    position: relative;
     width: 100%;
-    max-height: calc(100dvh - var(--titlebar) - 12px);
+    max-height: calc(var(--vvh, 100dvh) - var(--titlebar) - 12px);
     border-radius: 20px 20px 0 0;
     animation: rise 0.18s ease-out;
   }
 
+  /* Drag the top bar down to close. */
+  .dialog-grip {
+    display: block;
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    width: 38px;
+    height: 5px;
+    margin-left: -19px;
+    border-radius: 3px;
+    background: var(--line-strong);
+  }
+
   .dialog-head {
-    padding: 18px 18px 4px;
+    padding: 20px 18px 4px;
+    touch-action: none;
   }
 
   .dialog-body {
     padding: 12px 18px 16px;
+    overscroll-behavior: contain;
   }
 
   .dialog-foot {
     padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px));
     flex-wrap: wrap;
+    touch-action: none;
+  }
+
+  .sheet {
+    touch-action: none;
+  }
+
+  /* Keyboard up: space is tight, so drop the subtitle and the gap kept for the home bar. */
+  html.kb-open .dialog-sub {
+    display: none;
+  }
+
+  html.kb-open .dialog-foot {
+    padding-bottom: 10px;
   }
 
   .dialog-foot .btn {

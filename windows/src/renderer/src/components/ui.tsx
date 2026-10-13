@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type TouchEvent as ReactTouchEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { ArrowDownRight, ArrowUpRight, Minus, X } from 'lucide-react'
 import { formatPct, parseNumber } from '@/core/money'
 import { useApp } from '@/store'
@@ -185,6 +186,101 @@ export function NumberInput({
   )
 }
 
+// ---------- modal layer ----------
+// While a dialog or sheet is open, the app behind it can't be scrolled or focused, so swipes and
+// the keyboard's next/previous buttons stay inside the dialog. On phones the dialog is also kept
+// inside the part of the screen the keyboard leaves free: --vvh and --vvt follow the visible area.
+
+let modals = 0
+let stopTracking: (() => void) | null = null
+
+function trackVisibleArea(): () => void {
+  const vv = window.visualViewport
+  if (!vv) return () => {}
+  const root = document.documentElement
+  const update = () => {
+    const keyboard = root.clientHeight - vv.height > 120
+    root.style.setProperty('--vvh', `${vv.height}px`)
+    root.style.setProperty('--vvt', `${vv.offsetTop}px`)
+    root.classList.toggle('kb-open', keyboard)
+    // iPhone can leave the whole page pushed up after its keyboard closes.
+    if (!keyboard && window.scrollY) window.scrollTo(0, 0)
+  }
+  update()
+  vv.addEventListener('resize', update)
+  vv.addEventListener('scroll', update)
+  return () => {
+    vv.removeEventListener('resize', update)
+    vv.removeEventListener('scroll', update)
+    root.style.removeProperty('--vvh')
+    root.style.removeProperty('--vvt')
+    root.classList.remove('kb-open')
+  }
+}
+
+/** Marks the app behind as inert while this dialog or sheet is mounted. Render the dialog with `inModalLayer`. */
+export function useModalLayer() {
+  useEffect(() => {
+    if (modals++ === 0) {
+      document.documentElement.classList.add('modal-open')
+      for (const el of document.querySelectorAll('#root > .shell, #root > .main')) el.setAttribute('inert', '')
+      stopTracking = trackVisibleArea()
+    }
+    return () => {
+      if (--modals > 0) return
+      document.documentElement.classList.remove('modal-open')
+      for (const el of document.querySelectorAll('#root > [inert]')) el.removeAttribute('inert')
+      stopTracking?.()
+      stopTracking = null
+      if (window.scrollY) window.scrollTo(0, 0)
+    }
+  }, [])
+}
+
+/** Dialogs live outside the app's own tree, so they stay usable while it is inert. */
+export const inModalLayer = (node: ReactNode) => createPortal(node, document.body)
+
+const isPhone = () => window.matchMedia('(max-width: 760px)').matches
+
+/** Phones: drag a sheet down by its top bar to close it. */
+export function useSwipeDown(onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ y: number; t: number; dy: number } | null>(null)
+  const settle = (close: boolean) => {
+    const el = ref.current
+    if (!el) return
+    el.style.transition = close ? 'transform 0.16s ease-in' : 'transform 0.18s ease-out'
+    el.style.transform = close ? 'translateY(100%)' : ''
+    if (close) setTimeout(onClose, 140)
+  }
+  return {
+    ref,
+    handlers: {
+      onTouchStart: (e: ReactTouchEvent) => {
+        drag.current = isPhone() && e.touches.length === 1 ? { y: e.touches[0].clientY, t: e.timeStamp, dy: 0 } : null
+      },
+      onTouchMove: (e: ReactTouchEvent) => {
+        const d = drag.current
+        if (!d || !ref.current) return
+        d.dy = Math.max(0, e.touches[0].clientY - d.y)
+        ref.current.style.transition = 'none'
+        ref.current.style.transform = d.dy ? `translateY(${d.dy}px)` : ''
+      },
+      onTouchEnd: (e: ReactTouchEvent) => {
+        const d = drag.current
+        drag.current = null
+        if (!d || !d.dy) return
+        const speed = d.dy / Math.max(1, e.timeStamp - d.t)
+        settle(d.dy > 110 || (d.dy > 30 && speed > 0.5))
+      },
+      onTouchCancel: () => {
+        drag.current = null
+        settle(false)
+      }
+    }
+  }
+}
+
 let openDialogs: string[] = []
 
 export function Dialog({
@@ -203,6 +299,8 @@ export function Dialog({
   wide?: boolean
 }) {
   const titleId = useId()
+  useModalLayer()
+  const swipe = useSwipeDown(onClose)
   // Dialogs can open on top of each other; Escape closes only the top one.
   useEffect(() => {
     openDialogs.push(titleId)
@@ -217,10 +315,11 @@ export function Dialog({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, titleId])
-  return (
+  return inModalLayer(
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`dialog ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <div className="dialog-head">
+      <div ref={swipe.ref} className={`dialog ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div className="dialog-head" {...swipe.handlers}>
+          <span className="dialog-grip" aria-hidden />
           <div>
             <h2 className="dialog-title" id={titleId}>
               {title}
