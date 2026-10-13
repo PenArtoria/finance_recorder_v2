@@ -4,6 +4,7 @@ import { timeAgo, useNow } from '@/hooks'
 import { useNav, type Page } from '@/nav'
 import { useApp } from '@/store'
 import { SyncStatusLine } from './SyncCard'
+import { inModalLayer, useModalLayer, useSwipeDown } from './ui'
 
 // Phone navigation: four tabs plus More. Shown instead of the sidebar on narrow screens.
 
@@ -55,10 +56,12 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
   const refresh = useApp((s) => s.refreshPrices)
   const syncOn = useApp((s) => s.sync.enabled)
   const now = useNow(20000)
+  useModalLayer()
+  const swipe = useSwipeDown(onClose)
 
-  return (
+  return inModalLayer(
     <div className="overlay sheet-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet" role="dialog" aria-modal="true" aria-label="More">
+      <div ref={swipe.ref} className="sheet" role="dialog" aria-modal="true" aria-label="More" {...swipe.handlers}>
         <div className="sheet-grip" aria-hidden />
         {MORE.map(({ page: p, label, icon: Icon }) => (
           <button
