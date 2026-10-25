@@ -42,15 +42,23 @@ export function aiConfigured(env: Env): boolean {
   return !!env.AI_PROVIDER?.trim() && !!env.AI_API_KEY?.trim()
 }
 
-/** The configured AI, or null when AI_PROVIDER or AI_API_KEY is empty. */
-export function createParser(env: Env): AiParser | null {
+/** The provider and model in use, or null when AI is off. */
+export function aiSettings(env: Env): { provider: string; model: string } | null {
   if (!aiConfigured(env)) return null
   const name = env.AI_PROVIDER!.trim().toLowerCase()
   const provider = PROVIDERS[ALIASES[name] ?? name]
   if (!provider) throw new BotError('unknownProvider', { provider: esc(name), names: Object.keys(PROVIDERS).join(', ') })
   const model = env.AI_MODEL?.trim() || provider.model
   if (!model) throw new BotError('aiSetup', { setting: 'AI_MODEL' })
+  return { provider: ALIASES[name] ?? name, model }
+}
+
+/** The configured AI, or null when AI_PROVIDER or AI_API_KEY is empty. */
+export function createParser(env: Env): AiParser | null {
+  const settings = aiSettings(env)
+  if (!settings) return null
+  const provider = PROVIDERS[settings.provider]
   const baseUrl = (env.AI_BASE_URL?.trim() || provider.url)?.replace(/\/+$/, '')
   if (!baseUrl && provider.api !== claude) throw new BotError('aiSetup', { setting: 'AI_BASE_URL' })
-  return provider.api({ apiKey: env.AI_API_KEY!.trim(), model, baseUrl, headers: provider.headers })
+  return provider.api({ apiKey: env.AI_API_KEY!.trim(), model: settings.model, baseUrl, headers: provider.headers })
 }
