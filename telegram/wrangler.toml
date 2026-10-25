@@ -1,0 +1,19 @@
+name = "moneta-telegram"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# The Moneta sync service (../cloud), reached directly rather than over the internet.
+# If yours has another name, change `service`. To use a sync service on another
+# account instead, remove this block and set SYNC_URL.
+[[services]]
+binding = "SYNC"
+service = "moneta"
+
+# Entries waiting for confirmation, and the undo history.
+[[d1_databases]]
+binding = "DB"
+database_name = "moneta-telegram"
+database_id = "749f1ff1-7166-4416-85bb-63e8946420a6"
+
+# Everything else is set with `npx wrangler secret put <NAME>` (see README.md), so
+# no tokens, keys or personal settings end up in this file.
