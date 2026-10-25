@@ -7,7 +7,7 @@
 //   plan             turns names into ids, fills in defaults and describes the result,
 //   apply            changes the data (and returns what `undo` needs to reverse it).
 
-import type { AppData, CreditCard, Expense, Holding, MoneySource, Trade } from '@shared/types'
+import type { AppData, AssetType, CreditCard, Expense, Holding, MoneySource, Quote, Trade } from '@shared/types'
 import { ratesOf } from '../../windows/src/renderer/src/core/calc'
 import { bankAccounts, linkedAccount, moveMoney, parseSourceKey, sourceCurrency, sourceExists } from '../../windows/src/renderer/src/core/cash'
 import { uid } from '../../windows/src/renderer/src/core/data'
@@ -56,7 +56,7 @@ export interface MoveAction {
 
 export interface TradeAction {
   type: 'buy' | 'sell'
-  /** Symbol or name of a holding you already have. */
+  /** Symbol or name of a holding you have, or for a buy, the ticker of a new one. */
   holding: string
   quantity?: number
   /** Total paid (buy, fees included) or received (sell, after fees). */
@@ -69,7 +69,21 @@ export interface TradeAction {
   /** Where the money came from (buy) or went (sell). */
   cash?: string
   date?: string
+  /** For a buy of something not in your holdings yet: what Yahoo Finance found for `holding`. */
+  candidates?: Candidate[]
 }
+
+/** A ticker found on Yahoo Finance, with its current quote, that a buy can add as a new holding. */
+export interface Candidate {
+  symbol: string
+  name: string
+  type: AssetType
+  exchange: string
+  quote: Quote
+}
+
+/** `holding` of a planned buy that adds a new holding: this, then the symbol. */
+const NEW = 'new:'
 
 export type Action = SpendAction | IncomeAction | MoveAction | TradeAction
 
@@ -85,7 +99,7 @@ export interface Ask {
 /** What `undo` needs to reverse an applied entry. */
 export type Step =
   | { type: 'expense'; id: string }
-  | { type: 'trade'; holding: string; trade: string }
+  | { type: 'trade'; holding: string; trade: string; created?: boolean }
   | { type: 'move'; from: MoneySource; out: number; to: MoneySource; in: number }
 
 export const MAX_ACTIONS = 10
@@ -149,7 +163,13 @@ interface Option {
   ref: string
   label: string
   names: string[]
+  /** A bank account (not a bucket or other asset), with its currency. */
+  bank?: string
 }
+
+/** Words for "a bank account" rather than a name: "the bank", "my account", "銀行", "戶口"… */
+const BANK_WORDS =
+  /^(?:(?:the|my|our)\s+)?(?:bank|bank account|bank acc|account|acc|checking|savings)$|^(?:銀行|銀行口座|口座|普通預金|銀行戶口|銀行帳戶|戶口|户口|银行|银行账户|账户|帳戶)$/
 
 /** Lowercase, full-width letters made normal (Ｄａｉｌｙ → daily), punctuation as spaces. */
 const norm = (s: string) =>
@@ -187,7 +207,7 @@ export function moneyOptions(data: AppData, opts: { bucketsOnly?: boolean; asset
     return { ref: `bucket:${b.id}`, label: a ? `${b.name} · ${a.name}` : b.name, names: [b.name] }
   })
   if (opts.bucketsOnly) return out
-  for (const a of bankAccounts(data)) out.push({ ref: `account:${a.id}`, label: a.name, names: [a.name, a.account ?? ''] })
+  for (const a of bankAccounts(data)) out.push({ ref: `account:${a.id}`, label: a.name, names: [a.name, a.account ?? ''], bank: a.currency })
   if (opts.assets) for (const h of data.holdings.filter((x) => isValued(x.type))) out.push({ ref: `account:${h.id}`, label: h.name, names: [h.name] })
   return out
 }
@@ -196,6 +216,11 @@ export function holdingOptions(data: AppData): Option[] {
   return data.holdings
     .filter((h) => isUnits(h.type))
     .map((h) => ({ ref: h.id, label: h.symbol || h.name, names: [h.symbol, h.symbol.split(/[.\-=]/)[0], h.name] }))
+}
+
+/** Whether a name or symbol points at a holding you have (one, or several to choose from). */
+export function hasHolding(data: AppData, query: string): boolean {
+  return find(query, holdingOptions(data)) !== null
 }
 
 export function cardOptions(data: AppData): Option[] {
@@ -211,12 +236,23 @@ interface PickContext {
   index: number
   field: Ask['field']
   t: Strings
+  /** The entry's currency, to choose between bank accounts. */
+  currency?: string
 }
 
 /** The ref a name points to. Several matches, or none, become a question with buttons. */
 function pickRef(query: string, options: Option[], c: PickContext): string {
   const found = find(query, options)
   if (found && 'ref' in found) return found.ref
+  // "From the bank": the bank account, or the one in the entry's currency.
+  const banks = options.filter((o) => o.bank)
+  if (banks.length && BANK_WORDS.test(norm(query))) {
+    const same = banks.filter((o) => o.bank === c.currency)
+    if (same.length === 1) return same[0].ref
+    const list = same.length ? same : banks
+    if (list.length === 1) return list[0].ref
+    throw new NeedChoice({ index: c.index, field: c.field, question: esc(c.t.whichBank), options: list.slice(0, MAX_OPTIONS).map(({ ref, label }) => ({ ref, label })) })
+  }
   if (!found && c.field === 'holding') {
     // The bot can't add a holding: that needs the symbol, type and currency.
     throw new BotError('noHolding', { query: esc(query), names: esc(options.map((o) => o.label).slice(0, MAX_OPTIONS).join(', ')) })
@@ -320,7 +356,7 @@ function resolve(data: AppData, a: Action, index: number, today: string, t: Stri
       theCard = data.cards.find((c) => c.id === id)
     }
     if (!from) from = askFor(moneyOptions(data, { bucketsOnly: !!theCard }), t.notTracked, { ...at, field: 'from' }, t.askFrom)
-    else if (from !== NONE) from = pickRef(from, moneyOptions(data), { ...at, field: 'from' })
+    else if (from !== NONE) from = pickRef(from, moneyOptions(data), { ...at, field: 'from', currency: a.currency })
     // A card charge only lowers a bucket's budget; the bank pays the bill later.
     if (theCard && from.startsWith('account:')) from = NONE
     const srcCcy = sourceCurrency(data, parseSourceKey(from))
@@ -341,7 +377,7 @@ function resolve(data: AppData, a: Action, index: number, today: string, t: Stri
   if (a.type === 'income') {
     let to = a.to ?? lastIncome(data)
     if (!to) to = askFor(moneyOptions(data, { assets: true }), t.notTracked, { ...at, field: 'to' }, t.askTo)
-    else if (to !== NONE) to = pickRef(to, moneyOptions(data, { assets: true }), { ...at, field: 'to' })
+    else if (to !== NONE) to = pickRef(to, moneyOptions(data, { assets: true }), { ...at, field: 'to', currency: a.currency })
     const destCcy = sourceCurrency(data, parseSourceKey(to))
     const currency = a.currency ?? destCcy ?? base
     checkRate(currency, [destCcy], rates)
@@ -357,8 +393,8 @@ function resolve(data: AppData, a: Action, index: number, today: string, t: Stri
   }
 
   if (a.type === 'move') {
-    const from = pickRef(a.from, moneyOptions(data), { ...at, field: 'from' })
-    const to = pickRef(a.to, moneyOptions(data, { assets: true }), { ...at, field: 'to' })
+    const from = pickRef(a.from, moneyOptions(data), { ...at, field: 'from', currency: a.currency })
+    const to = pickRef(a.to, moneyOptions(data, { assets: true }), { ...at, field: 'to', currency: a.currency })
     if (from === to) throw new BotError('sameSource')
     const fromCcy = sourceCurrency(data, parseSourceKey(from))
     const toCcy = sourceCurrency(data, parseSourceKey(to))
@@ -367,10 +403,21 @@ function resolve(data: AppData, a: Action, index: number, today: string, t: Stri
     return { type: 'move', amount: a.amount, currency, from, to }
   }
 
-  // buy or sell
-  const id = pickRef(a.holding, holdingOptions(data), { ...at, field: 'holding' })
-  const h = data.holdings.find((x) => x.id === id)!
-  const hc = holdingCurrency(data, h)
+  // buy or sell: of a holding you have, or a buy that adds a new one
+  let h: Holding | undefined
+  let create: Candidate | undefined
+  if (a.type === 'buy' && (a.holding.startsWith(NEW) || !hasHolding(data, a.holding))) {
+    if (!a.candidates?.length) throw new BotError('noSymbol', { query: esc(a.holding.replace(NEW, '')) })
+    create = pickCandidate(a, index, t)
+    // The same ticker may be held already, under a name that didn't match.
+    h = data.holdings.find((x) => isUnits(x.type) && x.symbol.toUpperCase() === create!.symbol.toUpperCase())
+    if (h) create = undefined
+  } else {
+    const id = pickRef(a.holding, holdingOptions(data), { ...at, field: 'holding' })
+    h = data.holdings.find((x) => x.id === id)!
+  }
+  const label = h ? h.symbol || h.name : create!.symbol
+  const hc = h ? holdingCurrency(data, h) : create!.quote.currency
   const given = a.currency ?? hc
   checkRate(given, [hc], rates)
   const inHolding = (v: number | undefined) => (v == null ? undefined : convert(v, given, hc, rates)!)
@@ -384,8 +431,8 @@ function resolve(data: AppData, a: Action, index: number, today: string, t: Stri
     total = inHolding(a.total)!
     price = (total - sign * fee) / quantity
   } else {
-    const p = inHolding(a.price) ?? livePrice(data, h)
-    if (!p) throw new BotError('noPrice', { holding: esc(h.symbol || h.name) })
+    const p = inHolding(a.price) ?? (h ? livePrice(data, h) : create!.quote.price || null)
+    if (!p) throw new BotError('noPrice', { holding: esc(label) })
     price = p
     if (a.quantity) {
       quantity = a.quantity
@@ -396,16 +443,17 @@ function resolve(data: AppData, a: Action, index: number, today: string, t: Stri
     } else throw new BotError('needQuantity')
   }
   if (!(quantity > 0) || !(total > 0)) throw new BotError('needQuantity')
-  if (a.type === 'sell' && quantity > h.quantity + 1e-9) throw new BotError('notEnoughUnits', { have: formatQty(h.quantity), holding: esc(h.symbol || h.name) })
+  if (a.type === 'sell' && h && quantity > h.quantity + 1e-9) throw new BotError('notEnoughUnits', { have: formatQty(h.quantity), holding: esc(label) })
 
-  let cash = a.cash ?? lastTradeCash(data, h.id)
+  let cash = a.cash ?? lastTradeCash(data, h?.id ?? '')
   if (!cash) cash = askFor(moneyOptions(data), t.noCash, { ...at, field: 'cash' }, t.askCash(a.type))
-  else if (cash !== NONE) cash = pickRef(cash, moneyOptions(data), { ...at, field: 'cash' })
+  else if (cash !== NONE) cash = pickRef(cash, moneyOptions(data), { ...at, field: 'cash', currency: given })
   checkRate(hc, [sourceCurrency(data, parseSourceKey(cash))], rates)
 
   return {
     type: a.type,
-    holding: h.id,
+    holding: h ? h.id : NEW + create!.symbol,
+    ...(create ? { candidates: [create] } : {}),
     quantity,
     total: +total.toFixed(8),
     price: +price.toPrecision(10),
@@ -414,6 +462,25 @@ function resolve(data: AppData, a: Action, index: number, today: string, t: Stri
     cash,
     date: a.date ?? today
   }
+}
+
+/** The ticker a buy of something new means. Several close matches become a question. */
+function pickCandidate(a: TradeAction, index: number, t: Strings): Candidate {
+  const list = a.candidates ?? []
+  const chosen = list.find((c) => NEW + c.symbol === a.holding)
+  if (chosen) return chosen
+  const q = norm(a.holding)
+  const exact = list.filter((c) => norm(c.symbol) === q)
+  if (exact.length === 1) return exact[0]
+  const base = list.filter((c) => norm(c.symbol.split(/[.\-=]/)[0]) === q)
+  if (base.length === 1) return base[0]
+  if (list.length === 1) return list[0]
+  throw new NeedChoice({
+    index,
+    field: 'holding',
+    question: t.whichStock(esc(a.holding)),
+    options: list.slice(0, MAX_OPTIONS).map((c) => ({ ref: NEW + c.symbol, label: `${c.symbol} · ${c.name.slice(0, 40)}${c.exchange ? ` (${c.exchange})` : ''}` }))
+  })
 }
 
 export type Planned = { actions: Action[]; lines: string[]; ask?: undefined } | { actions: Action[]; ask: Ask; lines?: undefined }
@@ -502,7 +569,21 @@ function applyOne(d: AppData, a: Action, now: number): Step {
     return { type: 'move', from, out, to, in: got }
   }
 
-  const h = d.holdings.find((x) => x.id === a.holding)
+  let h = d.holdings.find((x) => x.id === a.holding)
+  let created = false
+  if (!h && a.holding.startsWith(NEW)) {
+    const c = a.candidates?.find((x) => NEW + x.symbol === a.holding)
+    if (!c) throw new BotError('gone')
+    // Added by another device, or by an earlier entry in the same message.
+    h = d.holdings.find((x) => isUnits(x.type) && x.symbol.toUpperCase() === c.symbol.toUpperCase())
+    if (!h) {
+      // Like adding a ticker in Moneta: the holding starts empty and the buy fills it.
+      h = { id: uid('h'), symbol: c.symbol, name: c.name, type: c.type, quantity: 0, currency: c.quote.currency, manualPrice: null, trades: [], createdAt: now }
+      d.holdings = [...d.holdings, h]
+      created = true
+    }
+    d.quotes[c.symbol] = c.quote
+  }
   if (!h) throw new BotError('gone')
   const t: Trade = {
     id: uid('t'),
@@ -523,7 +604,7 @@ function applyOne(d: AppData, a: Action, now: number): Step {
   }
   h.trades = [...(h.trades ?? []), t]
   syncHolding(h)
-  return { type: 'trade', holding: h.id, trade: t.id }
+  return { type: 'trade', holding: h.id, trade: t.id, ...(created ? { created: true } : {}) }
 }
 
 /** Reverses applied entries. Ones already removed in Moneta are skipped. Returns how many were undone. */
@@ -543,6 +624,8 @@ export function undo(d: AppData, steps: Step[]): number {
       if (t.cash) moveMoney(d, t.cash, t.side === 'buy' ? t.cash.amount : -t.cash.amount, rates)
       h.trades = h.trades!.filter((x) => x.id !== s.trade)
       syncHolding(h)
+      // A holding the bot added goes again when its only trade is undone.
+      if (s.created && !h.trades.length) d.holdings = d.holdings.filter((x) => x.id !== h.id)
     } else {
       moveMoney(d, s.from, s.out, rates)
       moveMoney(d, s.to, -s.in, rates)
@@ -623,9 +706,10 @@ function describe(d: AppData, a: Action, today: string, t: Strings): string {
       received: got != null ? esc(formatMoney(got, toCcy!)) : undefined
     })
   }
-  const h = d.holdings.find((x) => x.id === a.holding)!
+  const h = d.holdings.find((x) => x.id === a.holding) ?? d.holdings.find((x) => NEW + x.symbol === a.holding)!
   const s = src(a.cash)
   return tradeCard(t, {
+    newName: a.holding.startsWith(NEW) ? esc(h.name) : undefined,
     side: a.type,
     quantity: esc(formatQty(a.quantity!)),
     holding: esc(h.symbol || h.name),

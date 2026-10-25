@@ -24,7 +24,9 @@ How to fill in entries:
 - date is YYYY-MM-DD. Leave it out for today, and work out "yesterday", "last Friday" and the like from today's date.
 - category is a key from the category list. Pick the closest; use "other" (spending) or "other-in" (income) when none fits.
 - note is a few words saying what it was, in the user's language and words, such as "Lunch" or "Salary". Leave it out if the category says it all.
-- For buy and sell, give what the user said: quantity (units), price (per unit), total (whole amount paid or received) and fee. Moneta works out the rest, and uses the last known price when there's no price or total. A holding has to be in the holdings list; if it isn't, put the user's words in holding.
+- For buy and sell, give what the user said: quantity (units), price (per unit), total (whole amount paid or received) and fee. Moneta works out the rest, and uses the current price when there's no price.
+- holding is a ref from the holdings list. To buy something that isn't in the list, put its Yahoo Finance ticker in holding (PANW, VWRA.L, 7203.T for Tokyo, 0700.HK, BTC-USD); Moneta looks it up and adds it as a new holding.
+- Buying with money from an account is one buy whose cash is that account, not a separate move or spend. "Withdraw 350 USD from the bank and buy PANW" is one buy: holding PANW, total 350, currency USD, cash the bank account.
 - A transfer that also changes currency is still one move: give the amount and currency that left.
 
 When not to call the tool:
@@ -87,7 +89,7 @@ export const RECORD_TOOL = {
             from: { type: 'string', description: 'spend, move: ref the money left, the user’s words when unclear, or "none".' },
             to: { type: 'string', description: 'income, move: ref the money went into, the user’s words when unclear, or "none".' },
             card: { type: 'string', description: 'spend: ref of the credit card, when paid by card.' },
-            holding: { type: 'string', description: 'buy, sell: ref of the holding.' },
+            holding: { type: 'string', description: 'buy, sell: ref of the holding; for a buy of something new, its Yahoo Finance ticker.' },
             quantity: { type: 'number', description: 'buy, sell: units.' },
             price: { type: 'number', description: 'buy, sell: price per unit.' },
             total: { type: 'number', description: 'buy, sell: whole amount paid (fees included) or received (after fees).' },

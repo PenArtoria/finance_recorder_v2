@@ -3,10 +3,11 @@
 // carries the version it was based on, so if another device saved in between, the
 // bot loads the new copy and makes its change again.
 
-import type { AppData, QuoteResult } from '@shared/types'
+import type { AppData, QuoteResult, SymbolMatch } from '@shared/types'
 import { DATA_VERSION, normalizeData } from '../../windows/src/renderer/src/core/data'
 import { isUnits } from '../../windows/src/renderer/src/core/trades'
 import { deriveKeys, open, seal, type SyncKeys } from '../../windows/src/renderer/src/sync/crypto'
+import type { Candidate } from './actions'
 import { BotError, type Env } from './env'
 
 let keyCache: { syncKey: string; keys: SyncKeys } | null = null
@@ -104,5 +105,25 @@ export async function refreshQuotes(env: Env, data: AppData): Promise<boolean> {
     return (body.quotes?.length ?? 0) > 0 && !body.errors?.length
   } catch {
     return false
+  }
+}
+
+/** Looks a ticker or name up on Yahoo Finance, through the sync service, with current quotes. */
+export async function lookupSymbols(env: Env, query: string): Promise<Candidate[]> {
+  try {
+    const found = await call(env, `/api/search?q=${encodeURIComponent(query.slice(0, 80))}`, { signal: AbortSignal.timeout(8000) })
+    if (!found.ok) return []
+    const matches = ((await found.json()) as SymbolMatch[]).filter((m) => isUnits(m.type)).slice(0, 6)
+    if (!matches.length) return []
+    const res = await call(env, `/api/quotes?symbols=${encodeURIComponent(matches.map((m) => m.symbol).join(','))}`, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return []
+    const quotes = ((await res.json()) as QuoteResult).quotes ?? []
+    // Without a price there's nothing to buy at.
+    return matches.flatMap((m) => {
+      const quote = quotes.find((q) => q.symbol === m.symbol)
+      return quote ? [{ symbol: m.symbol, name: m.name, type: m.type, exchange: m.exchange, quote }] : []
+    })
+  } catch {
+    return []
   }
 }
