@@ -15,7 +15,11 @@ export interface Env {
   DB: D1Database
 }
 
-const MAX_BLOB = 4 * 1024 * 1024
+// D1 stores at most 2,000,000 bytes in one row. A synced document's row also holds its
+// id, auth hash, version and time (under 200 bytes), so the encrypted blob gets the rest.
+const MAX_BLOB = 2_000_000 - 1_000
+/** A request body is the blob plus a little JSON around it. */
+const MAX_BODY = MAX_BLOB + 1_000
 const PAIR_TTL_MS = 10 * 60 * 1000
 const ID = /^[a-f0-9]{32}$/
 
@@ -43,16 +47,29 @@ function bearer(req: Request): string {
   return h.startsWith('Bearer ') ? h.slice(7) : ''
 }
 
-async function readBody(req: Request): Promise<any | null> {
-  const len = Number(req.headers.get('Content-Length') ?? 0)
-  if (len > MAX_BLOB) return null
+const TOO_LARGE = Symbol('too large')
+
+/** The JSON body; null when it isn't valid JSON, TOO_LARGE when it's over `max` characters. */
+async function readBody(req: Request, max: number): Promise<any> {
+  if (Number(req.headers.get('Content-Length') ?? 0) > max) return TOO_LARGE
   try {
     const text = await req.text()
-    if (text.length > MAX_BLOB) return null
+    if (text.length > max) return TOO_LARGE
     return JSON.parse(text)
   } catch {
     return null
   }
+}
+
+/** The apps show `message` as the sync error. */
+function tooLarge(): Response {
+  return json(
+    {
+      error: 'too_large',
+      message: 'Your synced data is over the 2 MB the sync service can store, so this change wasn’t synced. It’s still saved on this device.'
+    },
+    413
+  )
 }
 
 /** Short-lived edge cache so many refreshes don't all hit Yahoo. */
@@ -94,7 +111,8 @@ async function handleSync(req: Request, env: Env, id: string): Promise<Response>
   }
 
   // PUT: write the new version only if nobody else wrote since `version`.
-  const body = await readBody(req)
+  const body = await readBody(req, MAX_BODY)
+  if (body === TOO_LARGE || (typeof body?.blob === 'string' && body.blob.length > MAX_BLOB)) return tooLarge()
   if (!body || typeof body.blob !== 'string' || typeof body.version !== 'number') return json({ error: 'bad_request' }, 400)
   const now = Date.now()
   if (!row) {
@@ -113,8 +131,8 @@ async function handlePair(req: Request, env: Env, id: string): Promise<Response>
   const now = Date.now()
   await env.DB.prepare('DELETE FROM pairs WHERE expires < ?').bind(now).run()
   if (req.method === 'PUT') {
-    const body = await readBody(req)
-    if (!body || typeof body.blob !== 'string' || body.blob.length > 4096) return json({ error: 'bad_request' }, 400)
+    const body = await readBody(req, 8192)
+    if (body === TOO_LARGE || !body || typeof body.blob !== 'string' || body.blob.length > 4096) return json({ error: 'bad_request' }, 400)
     await env.DB.prepare('INSERT OR REPLACE INTO pairs (id, blob, expires) VALUES (?, ?, ?)').bind(id, body.blob, now + PAIR_TTL_MS).run()
     return json({ ok: true, expires: now + PAIR_TTL_MS })
   }

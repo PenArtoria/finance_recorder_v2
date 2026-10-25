@@ -10,6 +10,10 @@ Sync data is encrypted on each device with AES-GCM before upload, using keys der
 sync key that only your devices hold. The service stores ciphertext and the SHA-256 of each
 document's auth token; it can't read your data.
 
+Each person's synced data can be up to about 2 MB after compression and encryption, the most D1 keeps in one
+row. That is roughly 27,000 entries, many years of daily use. Past it, syncing stops with a message saying so, and
+each device keeps its own copy.
+
 ## Deploy
 
 ```bash
