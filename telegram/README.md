@@ -112,7 +112,8 @@ In PowerShell, type `npx.cmd` and `curl.exe` instead of `npx` and `curl`.
    curl -X POST -H "Authorization: Bearer YOUR_WEBHOOK_SECRET" https://moneta-telegram.YOUR-SUBDOMAIN.workers.dev/setup
    ```
 
-   It answers `{"ok":true,…}` and sets up the bot's command menu.
+   It answers `{"ok":true,…}` and sets up the bot's command menu. If `ok` is false, `telegram` or `sync`
+   says whether the bot token or the sync key is wrong. Set that one again and run this again.
 
 7. **Allow yourself.** Send your bot any message. It replies with your Telegram user id. Add it:
 

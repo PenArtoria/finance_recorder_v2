@@ -37,9 +37,15 @@ export type Keyboard = Button[][]
 /** Telegram's limit is 4096 characters. */
 const MAX_TEXT = 4000
 
+/** The token alone (like 123456789:AA…), even when more of BotFather's message was pasted with it. */
+export function botToken(raw: string | undefined): string {
+  const text = (raw ?? '').trim()
+  return text.match(/\d{5,}:[A-Za-z0-9_-]{30,}/)?.[0] ?? text
+}
+
 export async function tg(env: Env, method: string, body: Record<string, unknown>): Promise<any> {
   const base = (env.TELEGRAM_API || 'https://api.telegram.org').replace(/\/+$/, '')
-  const res = await fetch(`${base}/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+  const res = await fetch(`${base}/bot${botToken(env.TELEGRAM_BOT_TOKEN)}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
