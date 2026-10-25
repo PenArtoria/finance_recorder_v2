@@ -34,8 +34,10 @@ Bot:  📝 Save this?
 | `/move <amount> [currency] from <place> to <place>` | `/move 700 USD from Wise to IBKR` |
 | `/buy <units> <holding> [at <price>] [fee <fee>] [from <place>] [on <date>]` | `/buy 3 VWRA at 140 fee 2 from IBKR` |
 | `/buy <holding> for <total> [at <price>] …` | `/buy VWRA for 500 from IBKR` |
-| `/sell <units> <holding> [at <price>] [fee <fee>] [to <place>] [on <date>]` | `/sell 1 RKLB at 70 to IBKR` |
+| `/sell <units> <holding> [at <price>] [fee <fee>] [to <place>] [on <date>]` | `/sell 1 RKLB at 70 to IBKR`, `/sell all RKLB` |
+| `/set <place or card> <amount>` | `/set SMBC 512300`, `/set Visa 45000`, `/set Daily 0` |
 | `/balances` | Net worth, investments (with live prices), bank accounts, buckets, other assets and cards |
+| `/month [last \| YYYY-MM]` | Spending and income for the month, by category, with the latest entries |
 | `/undo` | Undoes the last saved entry |
 | `/language` | Picks the reply language, or goes back to following Telegram |
 | `/help` | How to use the bot |
@@ -43,8 +45,9 @@ Bot:  📝 Save this?
 - **Places** are your buckets and bank accounts, by name or part of a name, in any language (`from daily`, `from 生活費`).
   Use `from none` for money that isn't in any tracked balance.
 - **Leave the place out** and the bot uses the same one as last time (for spending, the same card too).
-- **Amounts** can carry a currency: `1200`, `¥1200`, `1200円`, `HK$80`, `12.5 USD`. Without one, the entry uses the
-  currency of its bucket or account.
+- **Amounts** can be `1200`, `1,200`, `3万`, `120k` or `1.2m`, with a currency: `¥1200`, `1200円`, `HK$80`, `12.5 USD`,
+  `1200 yen`. Without one, an entry uses the currency of the account or card you named, or else the currency you
+  used last, as Moneta does.
 - **Dates**: `today`, `yesterday`, `2026-10-24`, `10-24` or a day of this month (`24`). Without a date, it's today.
 - **Categories**: `#food`, `#groceries`, `#transport`, `#shopping`, `#bills`, `#housing`, `#health`, `#fun`, `#travel`,
   `#education`, `#gifts`; for income `#salary`, `#bonus`, `#side`, `#dividend`, `#refund`.
@@ -53,7 +56,19 @@ Bot:  📝 Save this?
 - **"The bank"**, "my account", "銀行" and the like mean a bank account: the one in the entry's currency, or the bot
   asks which.
 
-Card bill payments and balance corrections are still done in the app.
+### Correcting a balance
+
+Forgot to record something? Tell the bot what the number is now, and it sets it:
+
+- **Bank account, bucket or asset** (`/set SMBC 512300`, "my pension is worth 2.1M"): the balance is set to that
+  amount. For a bucket inside a bank account, only the bucket changes.
+- **Credit card** (`/set Visa 45000`, "my card bill is 45,000"): if the card owes more than Moneta shows, the
+  difference is added as one card charge (Other · "Balance correction"), so the bill and your spending stay right.
+  If it owes less, the difference is recorded as a payment that no bank account made.
+
+Undo reverses just the correction, keeping anything recorded since.
+
+Card bill payments themselves are still done in the app.
 
 ## Privacy
 
@@ -140,7 +155,7 @@ In PowerShell, type `npx.cmd` and `curl.exe` instead of `npx` and `curl`.
 | Setting | What it does |
 |---|---|
 | `LANGUAGE` | Reply in `en`, `ja`, `zh-Hant` or `zh-Hans` instead of each person's Telegram language. `/language` in a chat still wins |
-| `SYNC_URL` | Address of a sync service on another Cloudflare account. Remove the `[[services]]` block from `wrangler.toml` to use it |
+| `SYNC_URL` | Address of a sync service on another Cloudflare account. When set, it is used instead of the `SYNC` binding |
 | `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` | See [AI](#ai) |
 
 ## AI
@@ -200,6 +215,13 @@ name the company doesn't know), the bot tells you in the chat.
 ```bash
 npm test            # unit tests
 npm run typecheck
+```
+
+To see what the AI and the bot make of some messages without saving anything (no balances are shown):
+
+```bash
+curl -X POST -H "Authorization: Bearer YOUR_WEBHOOK_SECRET" -H "Content-Type: application/json" \
+  -d '{"messages": ["lunch 1200 yen", "SMBC is 512300 now"]}' https://moneta-telegram.YOUR-SUBDOMAIN.workers.dev/try
 ```
 
 To try the bot locally, copy `.dev.vars.example` to `.dev.vars` and fill it in. Run the sync service in one

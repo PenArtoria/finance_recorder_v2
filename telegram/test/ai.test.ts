@@ -160,3 +160,25 @@ describe('OpenAI-style providers', () => {
     await expect(parser({ AI_PROVIDER: 'gemini' }).parse('x', context)).rejects.toMatchObject({ key: 'aiKey' })
   })
 })
+
+describe('answering the AI’s question', () => {
+  const earlier = [{ user: 'bought something', assistant: 'What did you buy?' }]
+
+  it('sends the earlier message and question first, for every kind of API', async () => {
+    let seen = fakeApi(() => ({ json: { choices: [{ message: { content: 'ok' } }] } }))
+    await parser({ AI_PROVIDER: 'deepseek' }).parse('PANW for 350', context, earlier)
+    expect(seen[0].body.messages.slice(1)).toEqual([
+      { role: 'user', content: 'bought something' },
+      { role: 'assistant', content: 'What did you buy?' },
+      { role: 'user', content: 'PANW for 350' }
+    ])
+
+    seen = fakeApi(() => claudeMessage([{ type: 'text', text: 'ok' }], 'end_turn'))
+    await parser({ AI_PROVIDER: 'claude' }).parse('PANW for 350', context, earlier)
+    expect(seen[0].body.messages.map((m: { role: string }) => m.role)).toEqual(['user', 'assistant', 'user'])
+
+    seen = fakeApi(() => ({ json: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }] } }))
+    await parser({ AI_PROVIDER: 'openai' }).parse('PANW for 350', context, earlier)
+    expect(seen[0].body.input.at(-1)).toEqual({ role: 'user', content: 'PANW for 350' })
+  })
+})

@@ -2,6 +2,7 @@
 // that can be undone (7 days) are encrypted with the sync key; each chat's language isn't.
 
 import type { Action, Ask, Step } from './actions'
+import type { Turn } from './ai'
 import type { Env } from './env'
 import { openNote, sealNote } from './moneta'
 
@@ -28,12 +29,28 @@ function newId(): string {
   return [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+const RECENT_MS = 10 * 60 * 1000
+
 export async function cleanup(env: Env): Promise<void> {
   const now = Date.now()
   await env.DB.batch([
     env.DB.prepare('DELETE FROM pending WHERE expires < ?').bind(now),
-    env.DB.prepare('DELETE FROM undo WHERE expires < ?').bind(now)
+    env.DB.prepare('DELETE FROM undo WHERE expires < ?').bind(now),
+    env.DB.prepare('DELETE FROM recent WHERE expires < ?').bind(now)
   ])
+}
+
+/** Keeps the AI's questions (and the messages they answered) for the chat's next message. */
+export async function putRecent(env: Env, chat: number, turns: Turn[]): Promise<void> {
+  await env.DB.prepare('INSERT OR REPLACE INTO recent (chat, blob, expires) VALUES (?, ?, ?)')
+    .bind(chat, await sealNote(env, turns), Date.now() + RECENT_MS)
+    .run()
+}
+
+/** Reads and forgets the AI's last questions to the chat, if they're still fresh. */
+export async function takeRecent(env: Env, chat: number): Promise<Turn[] | null> {
+  const row = await env.DB.prepare('DELETE FROM recent WHERE chat = ? AND expires >= ? RETURNING blob').bind(chat, Date.now()).first<{ blob: string }>()
+  return row ? openNote<Turn[]>(env, row.blob) : null
 }
 
 export async function putPending(env: Env, chat: number, p: Pending): Promise<string> {
@@ -78,6 +95,12 @@ export async function takeSaved(env: Env, chat: number, id?: string): Promise<Sa
 export async function getLang(env: Env, chat: number): Promise<string | null> {
   const row = await env.DB.prepare('SELECT lang FROM prefs WHERE chat = ?').bind(chat).first<{ lang: string }>()
   return row?.lang ?? null
+}
+
+/** Every chat's chosen language. */
+export async function allLangs(env: Env): Promise<{ chat: number; lang: string }[]> {
+  const { results } = await env.DB.prepare('SELECT chat, lang FROM prefs').all<{ chat: number; lang: string }>()
+  return results
 }
 
 /** Saves a chat's language; null goes back to following Telegram. */

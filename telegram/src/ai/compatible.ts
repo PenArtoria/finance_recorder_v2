@@ -3,7 +3,7 @@
 
 import { RECORD_TOOL, systemPrompt } from './prompt'
 import { fromCalls, parseArguments, postJson } from './shared'
-import type { AiParser, ProviderOptions } from './types'
+import type { AiParser, ProviderOptions, Turn } from './types'
 
 interface ChatMessage {
   content?: string | null
@@ -12,7 +12,7 @@ interface ChatMessage {
 
 export function compatible(o: ProviderOptions): AiParser {
   return {
-    async parse(message, context) {
+    async parse(message, context, earlier: Turn[] = []) {
       const data = (await postJson(
         `${o.baseUrl}/chat/completions`,
         o.apiKey,
@@ -20,6 +20,10 @@ export function compatible(o: ProviderOptions): AiParser {
           model: o.model,
           messages: [
             { role: 'system', content: systemPrompt(context) },
+            ...earlier.flatMap((x) => [
+              { role: 'user', content: x.user },
+              { role: 'assistant', content: x.assistant }
+            ]),
             { role: 'user', content: message }
           ],
           tools: [{ type: 'function', function: { name: RECORD_TOOL.name, description: RECORD_TOOL.description, parameters: RECORD_TOOL.schema } }],

@@ -12,7 +12,7 @@ import { compatible } from './compatible'
 import { openai } from './openai'
 import type { AiParser, ProviderOptions } from './types'
 
-export type { AiParser, AiResult } from './types'
+export type { AiParser, AiResult, Turn } from './types'
 
 interface Provider {
   /** How to talk to it. */

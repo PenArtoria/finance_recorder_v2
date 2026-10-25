@@ -6,7 +6,7 @@ export interface Env {
   DB: D1Database
   /** The Moneta sync service (../cloud), bound in wrangler.toml. */
   SYNC?: Fetcher
-  /** Address of the sync service when it isn't bound, e.g. https://moneta.example.workers.dev */
+  /** Address of a sync service to use instead of the binding, e.g. https://moneta.example.workers.dev */
   SYNC_URL?: string
 
   TELEGRAM_BOT_TOKEN: string

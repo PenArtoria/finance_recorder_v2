@@ -1,5 +1,7 @@
 import type { AppData } from '@shared/types'
 import { describe, expect, it } from 'vitest'
+import { ratesOf } from '../../windows/src/renderer/src/core/calc'
+import { owedOn } from '../../windows/src/renderer/src/core/cards'
 import { exampleData } from '../../windows/src/renderer/src/core/example'
 import { answer, plan, run, undo, validateActions, type Action, type Candidate } from '../src/actions'
 import { BotError } from '../src/env'
@@ -29,7 +31,7 @@ describe('spending and income', () => {
   it('takes spending out of a bucket and its bank account, and undo puts it back', () => {
     const d = exampleData()
     const before = structuredClone(d)
-    const { steps, lines } = save(d, [{ type: 'spend', amount: 120, note: 'Lunch', category: 'food', from: 'living' }])
+    const { steps, lines } = save(d, [{ type: 'spend', amount: 120, currency: 'HKD', note: 'Lunch', category: 'food', from: 'living' }])
     expect(bucket(d, 'ex-living').amount).toBe(18000 - 120)
     expect(holding(d, 'ex-hsbc').quantity).toBe(46000 - 120)
     const e = d.expenses.at(-1)!
@@ -52,10 +54,18 @@ describe('spending and income', () => {
 
   it('only lowers the bucket’s budget for a card charge', () => {
     const d = exampleData()
-    save(d, [{ type: 'spend', amount: 300, from: 'Japan trip', card: 'visa' }])
+    save(d, [{ type: 'spend', amount: 300, currency: 'HKD', from: 'Japan trip', card: 'visa' }])
     expect(bucket(d, 'ex-travel').amount).toBe(12000 - 300)
     expect(holding(d, 'ex-hsbc').quantity).toBe(46000)
     expect(d.expenses.at(-1)).toMatchObject({ cardId: 'ex-card', cardAmount: 300, source: { kind: 'bucket', id: 'ex-travel' } })
+  })
+
+  it('uses the currency of your last spending when none is given, as Moneta does', () => {
+    const d = exampleData()
+    save(d, [{ type: 'spend', amount: 5, currency: 'GBP', from: 'living' }])
+    expect(planned(d, [{ type: 'spend', amount: 7 }]).actions[0]).toMatchObject({ currency: 'GBP', from: 'bucket:ex-living' })
+    d.expenses = []
+    expect(planned(d, [{ type: 'spend', amount: 7, from: 'living' }]).actions[0]).toMatchObject({ currency: 'HKD' })
   })
 
   it('uses the same place as last time when none is given', () => {
@@ -67,7 +77,7 @@ describe('spending and income', () => {
 
   it('records income into an account', () => {
     const d = exampleData()
-    const { steps } = save(d, [{ type: 'income', amount: 28000, category: 'salary', to: 'HSBC Everyday' }])
+    const { steps } = save(d, [{ type: 'income', amount: 28000, currency: 'HKD', category: 'salary', to: 'HSBC Everyday' }])
     expect(holding(d, 'ex-hsbc').quantity).toBe(46000 + 28000)
     expect(d.expenses.at(-1)).toMatchObject({ kind: 'income', category: 'salary', source: { kind: 'account', id: 'ex-hsbc' } })
     undo(d, steps)
@@ -177,8 +187,8 @@ describe('several entries at once', () => {
   it('describes each with the balance after it', () => {
     const d = exampleData()
     const p = planned(d, [
-      { type: 'spend', amount: 100, from: 'living' },
-      { type: 'spend', amount: 50, from: 'living' }
+      { type: 'spend', amount: 100, currency: 'HKD', from: 'living' },
+      { type: 'spend', amount: 50, currency: 'HKD', from: 'living' }
     ])
     expect(p.lines[0]).toContain('Left: HK$17,900.00')
     expect(p.lines[1]).toContain('Left: HK$17,850.00')
@@ -290,5 +300,97 @@ describe('“the bank”', () => {
     const d = exampleData()
     d.holdings.find((h) => h.id === 'ex-wise')!.name = 'Bank'
     expect(planned(d, [{ type: 'spend', amount: 1, from: 'bank' }]).actions[0]).toMatchObject({ from: 'account:ex-wise' })
+  })
+})
+
+describe('setting a balance', () => {
+  it('sets a bank account’s balance, and undo keeps later changes', () => {
+    const d = exampleData()
+    const { steps, lines } = save(d, [{ type: 'set', target: 'HSBC Everyday', amount: 45000 }])
+    expect(holding(d, 'ex-hsbc').quantity).toBe(45000)
+    expect(bucket(d, 'ex-living').amount).toBe(18000)
+    expect(lines[0]).toContain('<b>Set: HSBC Everyday</b>')
+    expect(lines[0]).toContain('Was: HK$46,000.00')
+    expect(lines[0]).toContain('Now: <b>HK$45,000.00</b> (−HK$1,000.00)')
+    // Something else changes the account before the undo.
+    save(d, [{ type: 'income', amount: 100, currency: 'HKD', to: 'HSBC Everyday' }])
+    undo(d, steps)
+    expect(holding(d, 'ex-hsbc').quantity).toBe(46100)
+  })
+
+  it('sets a bucket without touching its bank account', () => {
+    const d = exampleData()
+    const { lines } = save(d, [{ type: 'set', target: 'Japan trip', amount: 10000 }])
+    expect(bucket(d, 'ex-travel').amount).toBe(10000)
+    expect(holding(d, 'ex-hsbc').quantity).toBe(46000)
+    expect(lines[0]).toContain('Only the bucket changes; HSBC Everyday stays the same.')
+  })
+
+  it('sets what an asset is worth, and understands “the bank” and zero', () => {
+    const d = exampleData()
+    d.holdings.push({ id: 'ex-pension', symbol: '', name: 'Pension', type: 'pension', quantity: 1, currency: 'USD', manualPrice: 20000, createdAt: 0 })
+    save(d, [{ type: 'set', target: 'pension', amount: 21000 }])
+    expect(holding(d, 'ex-pension').manualPrice).toBe(21000)
+    save(d, [{ type: 'set', target: 'the bank', amount: 40000, currency: 'HKD' }])
+    expect(holding(d, 'ex-hsbc').quantity).toBe(40000)
+    save(d, [{ type: 'set', target: 'Investment reserve', amount: 0 }])
+    expect(bucket(d, 'ex-reserve').amount).toBe(0)
+  })
+
+  it('adds a card charge when the card owes more, and undo removes it', () => {
+    const d = exampleData()
+    const card = d.cards[0]
+    const before = owedOn(d, card, ratesOf(d))
+    const { steps, lines } = save(d, [{ type: 'set', target: 'my card', amount: before + 500 }])
+    expect(owedOn(d, card, ratesOf(d))).toBeCloseTo(before + 500, 6)
+    const e = d.expenses.at(-1)!
+    expect(e).toMatchObject({ cardId: card.id, category: 'other', note: 'Balance correction', source: null })
+    expect(e.amount).toBeCloseTo(500, 6)
+    expect(lines[0]).toContain('owed (+HK$500.00)')
+    expect(lines[0]).toContain('added as a card charge')
+    undo(d, steps)
+    expect(owedOn(d, card, ratesOf(d))).toBeCloseTo(before, 6)
+  })
+
+  it('records payments that no bank account made when the card owes less', () => {
+    const d = exampleData()
+    const card = d.cards[0]
+    const hsbc = holding(d, 'ex-hsbc').quantity
+    const before = owedOn(d, card, ratesOf(d))
+    expect(before).toBeGreaterThan(0)
+    const { steps, lines } = save(d, [{ type: 'set', target: 'Visa', amount: 0 }])
+    expect(owedOn(d, card, ratesOf(d))).toBe(0)
+    expect(holding(d, 'ex-hsbc').quantity).toBe(hsbc)
+    expect(lines[0]).toContain('recorded as a card payment')
+    undo(d, steps)
+    expect(owedOn(d, card, ratesOf(d))).toBeCloseTo(before, 6)
+  })
+
+  it('rejects a negative balance', () => {
+    expect(() => validateActions([{ type: 'set', target: 'SMBC', amount: -5 }])).toThrow(BotError)
+  })
+})
+
+describe('everyday defaults', () => {
+  it('uses a named account’s or card’s currency over the last one used', () => {
+    const d = exampleData()
+    save(d, [{ type: 'spend', amount: 5, currency: 'GBP', from: 'living' }])
+    expect(planned(d, [{ type: 'spend', amount: 120, from: 'Wise USD' }]).actions[0]).toMatchObject({ currency: 'USD' })
+    expect(planned(d, [{ type: 'spend', amount: 120, card: 'Visa' }]).actions[0]).toMatchObject({ currency: 'HKD', from: 'bucket:ex-living' })
+    d.expenses = d.expenses.filter((e) => !e.cardId)
+    expect(planned(d, [{ type: 'spend', amount: 120, card: 'Visa' }]).actions[0]).toMatchObject({ from: 'none' })
+    expect(planned(d, [{ type: 'income', amount: 120, to: 'Wise USD' }]).actions[0]).toMatchObject({ currency: 'USD' })
+    // Nothing named: the last currency, as in Moneta.
+    expect(planned(d, [{ type: 'spend', amount: 120 }]).actions[0]).toMatchObject({ currency: 'GBP' })
+  })
+
+  it('sells everything with “all”', () => {
+    const d = exampleData()
+    const qty = holding(d, 'ex-rklb').quantity
+    const { steps } = save(d, [{ type: 'sell', holding: 'RKLB', all: true, cash: 'none' } as Action])
+    expect(holding(d, 'ex-rklb').quantity).toBe(0)
+    expect(d.holdings.find((h) => h.id === 'ex-rklb')!.trades!.at(-1)).toMatchObject({ side: 'sell', quantity: qty })
+    undo(d, steps)
+    expect(holding(d, 'ex-rklb').quantity).toBe(qty)
   })
 })

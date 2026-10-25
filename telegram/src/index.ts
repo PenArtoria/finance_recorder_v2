@@ -7,16 +7,17 @@
 // bot shows what it understood with ✅ / ❌ buttons and only changes your data once
 // you confirm. Saved entries get an ↩️ Undo button.
 
-import { answer, hasHolding, MAX_ACTIONS, plan, run, undo, validateActions, type Action } from './actions'
+import { answer, hasHolding, MAX_ACTIONS, plan, run, summarize, undo, validateActions, type Action } from './actions'
 import { aiConfigured, aiSettings, createParser } from './ai'
 import { buildContext } from './ai/context'
 import { balances } from './balances'
+import { monthOf, monthSummary } from './month'
 import { parseCommand } from './commands'
 import { allowedUsers, BotError, todayIn, type Env } from './env'
 import { esc, LANGS, LANGUAGE_NAMES, MENU, pickLang, struck, withCards, type ErrorKey, type Lang, type Strings } from './i18n'
 import { load, lookupSymbols, refreshQuotes, update } from './moneta'
 import * as store from './store'
-import { answerCallback, edit, rows, send, tg, typing, type Keyboard, type TgCallback, type TgMessage, type TgUpdate } from './telegram'
+import { answerCallback, edit, rows, send, sendLong, tg, typing, type Keyboard, type TgCallback, type TgMessage, type TgUpdate } from './telegram'
 
 /** Longest message the bot reads. */
 const MAX_INPUT = 1000
@@ -34,6 +35,7 @@ export default {
       return new Response('ok')
     }
     if (req.method === 'POST' && url.pathname === '/setup') return setup(req, env, url)
+    if (req.method === 'POST' && url.pathname === '/try') return tryMessages(req, env)
     return new Response('Not found', { status: 404 })
   }
 }
@@ -73,6 +75,10 @@ async function setup(req: Request, env: Env, url: URL): Promise<Response> {
     if (!env.LANGUAGE) {
       await tg(env, 'setMyCommands', { commands: menu(LANGS.ja), language_code: 'ja' })
       await tg(env, 'setMyCommands', { commands: menu(LANGS['zh-Hans']), language_code: 'zh' })
+    }
+    // Chats that picked a language have their own menu; bring it up to date too.
+    for (const { chat, lang } of await store.allLangs(env).catch(() => [])) {
+      await tg(env, 'setMyCommands', { commands: menu(pickLang(lang)), scope: { type: 'chat', chat_id: chat } }).catch(() => undefined)
     }
   } catch (err) {
     const message = String((err as Error).message)
@@ -122,11 +128,54 @@ async function setup(req: Request, env: Env, url: URL): Promise<Response> {
   return Response.json({ ok, webhook, telegram, sync, ai, ...(entries ? { sample, entries, plan: planned } : {}) }, { status: ok ? 200 : 502 })
 }
 
+// ---------- trying messages ----------
+
+/**
+ * POST /try with {"messages": ["lunch 1200 yen", …]} and the webhook secret: shows what the
+ * AI and the bot make of each message. Nothing is saved, and no balances are shown.
+ */
+async function tryMessages(req: Request, env: Env): Promise<Response> {
+  const auth = req.headers.get('Authorization') ?? ''
+  if (!sameSecret(auth.startsWith('Bearer ') ? auth.slice(7) : null, env.TELEGRAM_WEBHOOK_SECRET)) return new Response('unauthorized', { status: 401 })
+  const body = (await req.json().catch(() => null)) as { messages?: unknown } | null
+  const messages = Array.isArray(body?.messages) ? body!.messages.filter((m): m is string => typeof m === 'string').slice(0, 20) : []
+  const parser = createParser(env)
+  if (!parser) return Response.json({ error: 'AI is off' }, { status: 400 })
+  const { data } = await load(env)
+  const today = todayIn(env)
+  const results = []
+  for (const message of messages) {
+    try {
+      const result = await parser.parse(message, buildContext(data, today))
+      if (result.kind === 'reply') {
+        results.push({ message, reply: result.text })
+        continue
+      }
+      const actions = validateActions(result.actions.slice(0, MAX_ACTIONS))
+      await findNewHoldings(env, data, actions)
+      try {
+        const p = plan(data, actions, today, LANGS.en)
+        results.push(
+          p.ask
+            ? { message, ai: actions.map((a) => summarize(data, a)), asks: p.ask.question, options: p.ask.options.map((o) => o.label) }
+            : { message, entries: p.actions.map((a) => summarize(data, a)) }
+        )
+      } catch (err) {
+        results.push({ message, ai: actions.map((a) => summarize(data, a)), error: errorMessage(err, LANGS.en) })
+      }
+    } catch (err) {
+      results.push({ message, error: errorMessage(err, LANGS.en) })
+    }
+  }
+  return Response.json({ today, results })
+}
+
 // ---------- updates ----------
 
 async function handle(env: Env, update: TgUpdate): Promise<void> {
   try {
-    await store.cleanup(env)
+    // Housekeeping only: a failure here mustn't stop the message.
+    await store.cleanup(env).catch((err) => console.error('cleanup failed:', err instanceof Error ? err.message : err))
     if (update.message) await onMessage(env, update.message)
     else if (update.callback_query) await onButton(env, update.callback_query)
   } catch (err) {
@@ -172,15 +221,22 @@ async function respond(env: Env, chat: number, t: Strings, text: string, telegra
 
   const cmd = parseCommand(text, today)
   if (cmd) {
+    // A command moves on from whatever the AI last asked.
+    if (aiConfigured(env)) await store.takeRecent(env, chat).catch(() => null)
     switch (cmd.kind) {
       case 'help':
       case 'unknown':
-        return void (await send(env, chat, t.help(aiConfigured(env))))
+        return sendLong(env, chat, t.help(aiConfigured(env)))
       case 'balances': {
         void typing(env, chat)
         const { data } = await load(env)
         const live = await refreshQuotes(env, data)
-        return void (await send(env, chat, balances(data, t, { live, timeZone: env.TIMEZONE })))
+        return sendLong(env, chat, balances(data, t, { live, timeZone: env.TIMEZONE }))
+      }
+      case 'month': {
+        const month = monthOf(cmd.arg, today)
+        if (!month) return void (await send(env, chat, t.help(aiConfigured(env))))
+        return sendLong(env, chat, monthSummary((await load(env)).data, month, today, t))
       }
       case 'undo':
         return undoLatest(env, chat, t)
@@ -197,15 +253,21 @@ async function respond(env: Env, chat: number, t: Strings, text: string, telegra
   if (!ai) return void (await send(env, chat, t.noAi))
   void typing(env, chat)
   const { data } = await load(env)
+  // If the AI asked something last time, this message is the answer.
+  const earlier = (await store.takeRecent(env, chat).catch(() => null)) ?? []
   let result
   try {
-    result = await ai.parse(text, buildContext(data, today))
+    result = await ai.parse(text, buildContext(data, today), earlier)
   } catch (err) {
     if (err instanceof BotError) throw err
     console.error('AI failed:', err instanceof Error ? err.message : err)
     throw new BotError('aiFailed')
   }
-  if (result.kind === 'reply') return void (await send(env, chat, `💬 ${esc(result.text.slice(0, 1000))}`))
+  if (result.kind === 'reply') {
+    const reply = result.text.slice(0, 1000)
+    await store.putRecent(env, chat, [...earlier, { user: text, assistant: reply }].slice(-3)).catch(() => undefined)
+    return void (await send(env, chat, `💬 ${esc(reply)}`))
+  }
   const actions = validateActions(result.actions.slice(0, MAX_ACTIONS))
   return propose(env, chat, t, actions, today, data)
 }
@@ -229,7 +291,7 @@ async function propose(env: Env, chat: number, t: Strings, actions: Action[], to
     text = withCards(`📝 <b>${esc(t.confirm)}</b>`, p.lines)
     keyboard = [[{ text: t.save, callback_data: `ok:${id}` }, { text: t.cancel, callback_data: `no:${id}` }]]
   }
-  if (messageId) await edit(env, chat, messageId, text, keyboard)
+  if (messageId) await show(env, chat, messageId, text, keyboard)
   else await send(env, chat, text, keyboard)
 }
 
@@ -266,7 +328,20 @@ async function setLanguage(env: Env, chat: number, messageId: number, choice: st
   await (lang ? tg(env, 'setMyCommands', { commands: menu(t), scope }) : tg(env, 'deleteMyCommands', { scope })).catch((err) =>
     console.error('could not set the menu:', err instanceof Error ? err.message : err)
   )
-  await edit(env, chat, messageId, `🌐 ${esc(t.language.set)}`)
+  await show(env, chat, messageId, `🌐 ${esc(t.language.set)}`)
+}
+
+/**
+ * Updates a message, or sends a new one when it can't be edited any more (Telegram stops
+ * that after 48 hours), so a result that was saved is always shown.
+ */
+async function show(env: Env, chat: number, messageId: number, html: string, keyboard: Keyboard = []): Promise<void> {
+  try {
+    await edit(env, chat, messageId, html, keyboard)
+  } catch (err) {
+    console.error('could not edit, sending instead:', err instanceof Error ? err.message : err)
+    await send(env, chat, html, keyboard.length ? keyboard : undefined)
+  }
 }
 
 // ---------- buttons ----------
@@ -285,7 +360,7 @@ async function onButton(env: Env, q: TgCallback): Promise<void> {
     else if (kind === 'undo') notice = await undoSaved(env, chat, msg.message_id, t, id)
     else if (kind === 'lang') await setLanguage(env, chat, msg.message_id, id, q.from.language_code)
   } catch (err) {
-    await edit(env, chat, msg.message_id, errorText(err, t)).catch(() => send(env, chat, errorText(err, t)))
+    await show(env, chat, msg.message_id, errorText(err, t)).catch(() => undefined)
   }
   await answerCallback(env, q.id, notice).catch(() => undefined)
 }
@@ -302,7 +377,7 @@ async function confirm(env: Env, chat: number, messageId: number, t: Strings, id
     console.error('could not keep undo:', err instanceof Error ? err.message : err)
     return null
   })
-  await edit(env, chat, messageId, withCards(`✅ <b>${esc(t.saved)}</b>`, lines), undoId ? [[{ text: t.undo, callback_data: `undo:${undoId}` }]] : [])
+  await show(env, chat, messageId, withCards(`✅ <b>${esc(t.saved)}</b>`, lines), undoId ? [[{ text: t.undo, callback_data: `undo:${undoId}` }]] : [])
   return undefined
 }
 
@@ -310,7 +385,7 @@ async function cancel(env: Env, chat: number, messageId: number, t: Strings, id:
   const p = await store.takePending(env, chat, id)
   if (!p) return
   const status = `❌ <b>${esc(t.cancelled)}</b>`
-  await edit(env, chat, messageId, p.lines?.length && !p.ask ? withCards(status, p.lines.map(struck)) : status)
+  await show(env, chat, messageId, p.lines?.length && !p.ask ? withCards(status, p.lines.map(struck)) : status)
 }
 
 async function pick(env: Env, chat: number, messageId: number, t: Strings, id: string, index: number): Promise<string | undefined> {
@@ -327,7 +402,7 @@ async function undoSaved(env: Env, chat: number, messageId: number, t: Strings, 
   const s = await store.takeSaved(env, chat, id)
   if (!s) return t.nothingToUndo
   await update(env, (data) => undo(data, s.steps))
-  await edit(env, chat, messageId, undoneText(t, s.lines))
+  await show(env, chat, messageId, undoneText(t, s.lines))
   return undefined
 }
 

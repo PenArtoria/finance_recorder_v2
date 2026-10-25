@@ -30,9 +30,10 @@ async function call(env: Env, path: string, init: RequestInit = {}): Promise<Res
   const k = await keysOf(env)
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${k.auth}` }
   try {
+    // SYNC_URL, when set, wins over the binding: it's the one you chose on purpose.
+    if (env.SYNC_URL) return await fetch(env.SYNC_URL.replace(/\/+$/, '') + path, { ...init, headers })
     if (env.SYNC) return await env.SYNC.fetch(`https://moneta${path}`, { ...init, headers })
-    if (!env.SYNC_URL) throw new BotError('noSyncService')
-    return await fetch(env.SYNC_URL.replace(/\/+$/, '') + path, { ...init, headers })
+    throw new BotError('noSyncService')
   } catch (err) {
     if (err instanceof BotError) throw err
     throw new BotError('syncOffline')
