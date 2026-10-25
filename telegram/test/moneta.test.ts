@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { exampleData } from '../../windows/src/renderer/src/core/example'
 import { deriveKeys, newSyncKey, open, seal } from '../../windows/src/renderer/src/sync/crypto'
 import type { Env } from '../src/env'
-import { load, refreshQuotes, update } from '../src/moneta'
+import { load, lookupSymbols, refreshQuotes, update } from '../src/moneta'
 
 /** A stand-in for the sync service with the same rules: writes must name the version they're based on. */
 async function fakeSync(data: unknown, opts: { raw?: string; maxBlob?: number } = {}) {
@@ -25,6 +25,13 @@ async function fakeSync(data: unknown, opts: { raw?: string; maxBlob?: number } 
   const fetcher = {
     async fetch(url: string, init: RequestInit = {}) {
       const path = new URL(url).pathname
+      if (path === '/api/search') {
+        return Response.json([
+          { symbol: 'PANW', name: 'Palo Alto Networks, Inc.', type: 'stock', exchange: 'NASDAQ', quoteType: 'EQUITY' },
+          { symbol: 'PANW.TO', name: 'Palo Alto Networks, Inc.', type: 'etf', exchange: 'Toronto', quoteType: 'ETF' },
+          { symbol: 'EURUSD=X', name: 'EUR/USD', type: 'cash', exchange: 'CCY', quoteType: 'CURRENCY' }
+        ])
+      }
       if (path === '/api/quotes') {
         const symbols = (new URL(url).searchParams.get('symbols') ?? '').split(',')
         return Response.json({ quotes: symbols.map((symbol) => ({ symbol, price: 1, previousClose: 1, currency: 'USD', fetchedAt: 1 })), errors: [] })
@@ -99,6 +106,13 @@ describe('sync', () => {
     expect(await refreshQuotes(env, data)).toBe(true)
     expect(data.quotes['VWRA.L']).toMatchObject({ price: 1, fetchedAt: 1 })
     expect(data.quotes['BTC-USD']).toMatchObject({ price: 1 })
+  })
+
+  it('looks new tickers up with their prices, leaving out things that can’t be held as units', async () => {
+    const { env } = await fakeSync(exampleData())
+    const found = await lookupSymbols(env, 'panw')
+    expect(found.map((c) => c.symbol)).toEqual(['PANW', 'PANW.TO'])
+    expect(found[0]).toMatchObject({ name: 'Palo Alto Networks, Inc.', type: 'stock', quote: { price: 1, currency: 'USD' } })
   })
 
   it('won’t touch data from a newer Moneta', async () => {

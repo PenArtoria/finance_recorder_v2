@@ -42,6 +42,8 @@ export interface TradeLine {
   side: 'buy' | 'sell'
   quantity: string
   holding: string
+  /** Set when the buy adds a new holding: its full name. */
+  newName?: string
   price: string
   fee?: string
   total: string
@@ -62,6 +64,7 @@ export type ErrorKey =
   | 'newerData'
   | 'gone'
   | 'noHolding'
+  | 'noSymbol'
   | 'noPrice'
   | 'needQuantity'
   | 'notEnoughUnits'
@@ -96,6 +99,7 @@ interface Labels {
   total: string
   paidFrom: string
   paidTo: string
+  newHolding: string
   date: string
 }
 
@@ -130,6 +134,8 @@ export interface Strings {
   askCash: (side: 'buy' | 'sell') => string
   whichOne: (query: string) => string
   cantFind: (query: string) => string
+  whichStock: (query: string) => string
+  whichBank: string
   /** Command descriptions for Telegram's menu. */
   menu: Record<MenuCommand, string>
   bal: {
@@ -196,6 +202,7 @@ const en: Strings = {
     total: 'Total: ',
     paidFrom: 'Paid from: ',
     paidTo: 'Paid into: ',
+    newHolding: 'New holding: ',
     date: 'Date: '
   },
   onlyText: 'Please send text. Photos and voice messages aren’t supported yet.',
@@ -215,6 +222,8 @@ const en: Strings = {
   askCash: (side) => (side === 'buy' ? 'Which account paid for it?' : 'Which account got the money?'),
   whichOne: (q) => `Which one is “${q}”?`,
   cantFind: (q) => `I can’t find “${q}”. Which one is it?`,
+  whichStock: (q) => `Which “${q}” do you mean?`,
+  whichBank: 'Which bank account?',
   menu: {
     spend: 'Record spending',
     income: 'Record income',
@@ -266,7 +275,8 @@ const en: Strings = {
     dataTooBig: () => 'Your Moneta data is over the 2 MB the sync service can store, so this wasn’t saved. Nothing was changed.',
     newerData: () => 'Your data was saved by a newer Moneta. Update and redeploy the bot first.',
     gone: () => 'Something this needs was deleted in Moneta in the meantime. Please send it again.',
-    noHolding: (p) => `“${p.query}” isn’t in your holdings. Add it in Moneta first.${p.names ? ` You hold: ${p.names}` : ''}`,
+    noHolding: (p) => `You don’t hold “${p.query}”.${p.names ? ` You hold: ${p.names}` : ''}`,
+    noSymbol: (p) => `I can’t find “${p.query}” in your holdings or on Yahoo Finance. Try its ticker, like PANW, VWRA.L or 7203.T.`,
     noPrice: (p) => `I don’t know the price of ${p.holding}. Tell me the price per unit.`,
     needQuantity: () => 'Tell me how many units, or how much in total.',
     notEnoughUnits: (p) => `You only hold ${p.have} ${p.holding}.`,
@@ -317,6 +327,7 @@ const ja: Strings = {
     total: '合計：',
     paidFrom: '支払元：',
     paidTo: '入金先：',
+    newHolding: '新規銘柄：',
     date: '日付：'
   },
   onlyText: 'テキストで送ってください。写真や音声にはまだ対応していません。',
@@ -334,6 +345,8 @@ const ja: Strings = {
   askCash: (side) => (side === 'buy' ? 'どの口座から支払いましたか？' : 'どの口座に入りましたか？'),
   whichOne: (q) => `「${q}」はどれですか？`,
   cantFind: (q) => `「${q}」が見つかりません。どれですか？`,
+  whichStock: (q) => `「${q}」はどの銘柄ですか？`,
+  whichBank: 'どの銀行口座ですか？',
   menu: {
     spend: '支出を記録',
     income: '収入を記録',
@@ -385,7 +398,8 @@ const ja: Strings = {
     dataTooBig: () => 'Moneta のデータが同期サービスに保存できる 2 MB を超えたため、記録できませんでした。何も変更されていません。',
     newerData: () => 'データが新しいバージョンの Moneta で保存されています。先にボットを更新してデプロイし直してください。',
     gone: () => 'その間に Moneta で必要な項目が削除されました。もう一度送ってください。',
-    noHolding: (p) => `「${p.query}」は保有銘柄にありません。先に Moneta で追加してください。${p.names ? `保有銘柄：${p.names}` : ''}`,
+    noHolding: (p) => `「${p.query}」は保有していません。${p.names ? `保有銘柄：${p.names}` : ''}`,
+    noSymbol: (p) => `「${p.query}」は保有銘柄にも Yahoo Finance にも見つかりません。PANW、VWRA.L、7203.T のようなティッカーで試してください。`,
     noPrice: (p) => `${p.holding} の価格がわかりません。1単位あたりの価格を教えてください。`,
     needQuantity: () => '数量か合計金額を教えてください。',
     notEnoughUnits: (p) => `${p.holding} の保有数は ${p.have} だけです。`,
@@ -436,6 +450,7 @@ const zhHant: Strings = {
     total: '總額：',
     paidFrom: '付款戶口：',
     paidTo: '存入戶口：',
+    newHolding: '新增持倉：',
     date: '日期：'
   },
   onlyText: '請傳文字。暫時不支援相片和語音。',
@@ -453,6 +468,8 @@ const zhHant: Strings = {
   askCash: (side) => (side === 'buy' ? '用哪個戶口付款？' : '錢存入哪個戶口？'),
   whichOne: (q) => `「${q}」是哪一個？`,
   cantFind: (q) => `找不到「${q}」，是哪一個？`,
+  whichStock: (q) => `「${q}」是哪一隻？`,
+  whichBank: '哪一個銀行戶口？',
   menu: {
     spend: '記錄支出',
     income: '記錄收入',
@@ -504,7 +521,8 @@ const zhHant: Strings = {
     dataTooBig: () => '你的 Moneta 資料已超過同步服務可儲存的 2 MB，所以沒有記錄。資料沒有任何改動。',
     newerData: () => '你的資料是由較新版本的 Moneta 儲存的。請先更新並重新部署機械人。',
     gone: () => '這段時間內，需要用到的項目在 Moneta 被刪除了。請再傳一次。',
-    noHolding: (p) => `你的持倉中沒有「${p.query}」。請先在 Moneta 加入。${p.names ? `你持有：${p.names}` : ''}`,
+    noHolding: (p) => `你沒有持有「${p.query}」。${p.names ? `你持有：${p.names}` : ''}`,
+    noSymbol: (p) => `在你的持倉和 Yahoo Finance 都找不到「${p.query}」。請試試代號，例如 PANW、VWRA.L 或 0700.HK。`,
     noPrice: (p) => `我不知道 ${p.holding} 的價格。請告訴我每單位的價格。`,
     needQuantity: () => '請告訴我數量，或者總金額。',
     notEnoughUnits: (p) => `你只持有 ${p.have} ${p.holding}。`,
@@ -555,6 +573,7 @@ const zhHans: Strings = {
     total: '总额：',
     paidFrom: '付款账户：',
     paidTo: '存入账户：',
+    newHolding: '新增持仓：',
     date: '日期：'
   },
   onlyText: '请发文字。暂时不支持图片和语音。',
@@ -572,6 +591,8 @@ const zhHans: Strings = {
   askCash: (side) => (side === 'buy' ? '用哪个账户付款？' : '钱存入哪个账户？'),
   whichOne: (q) => `“${q}”是哪一个？`,
   cantFind: (q) => `找不到“${q}”，是哪一个？`,
+  whichStock: (q) => `“${q}”是哪一只？`,
+  whichBank: '哪个银行账户？',
   menu: {
     spend: '记录支出',
     income: '记录收入',
@@ -623,7 +644,8 @@ const zhHans: Strings = {
     dataTooBig: () => '你的 Moneta 数据已超过同步服务可保存的 2 MB，所以没有记录。数据没有任何改动。',
     newerData: () => '你的数据是由较新版本的 Moneta 保存的。请先更新并重新部署机器人。',
     gone: () => '这段时间内，需要用到的项目在 Moneta 被删除了。请再发一次。',
-    noHolding: (p) => `你的持仓中没有“${p.query}”。请先在 Moneta 添加。${p.names ? `你持有：${p.names}` : ''}`,
+    noHolding: (p) => `你没有持有“${p.query}”。${p.names ? `你持有：${p.names}` : ''}`,
+    noSymbol: (p) => `在你的持仓和 Yahoo Finance 都找不到“${p.query}”。请试试代码，例如 PANW、VWRA.L 或 0700.HK。`,
     noPrice: (p) => `我不知道 ${p.holding} 的价格。请告诉我每单位的价格。`,
     needQuantity: () => '请告诉我数量，或者总金额。',
     notEnoughUnits: (p) => `你只持有 ${p.have} ${p.holding}。`,
@@ -693,6 +715,7 @@ export function moveCard(t: Strings, l: MoveLine): string {
 
 export function tradeCard(t: Strings, l: TradeLine): string {
   return card(`${l.side === 'buy' ? '📈' : '📉'} <b>${t.kinds[l.side]} ${l.quantity} ${l.holding}</b>`, [
+    l.newName && `🆕 ${t.labels.newHolding}${l.newName}`,
     t.labels.price + l.price,
     l.fee && t.labels.fee + l.fee,
     t.labels.total + `<b>${l.total}</b>`,

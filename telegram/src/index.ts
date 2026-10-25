@@ -7,14 +7,14 @@
 // bot shows what it understood with ✅ / ❌ buttons and only changes your data once
 // you confirm. Saved entries get an ↩️ Undo button.
 
-import { answer, MAX_ACTIONS, plan, run, undo, validateActions, type Action } from './actions'
+import { answer, hasHolding, MAX_ACTIONS, plan, run, undo, validateActions, type Action } from './actions'
 import { aiConfigured, aiSettings, createParser } from './ai'
 import { buildContext } from './ai/context'
 import { balances } from './balances'
 import { parseCommand } from './commands'
 import { allowedUsers, BotError, todayIn, type Env } from './env'
 import { esc, LANGS, LANGUAGE_NAMES, MENU, pickLang, struck, withCards, type ErrorKey, type Lang, type Strings } from './i18n'
-import { load, refreshQuotes, update } from './moneta'
+import { load, lookupSymbols, refreshQuotes, update } from './moneta'
 import * as store from './store'
 import { answerCallback, edit, rows, send, tg, typing, type Keyboard, type TgCallback, type TgMessage, type TgUpdate } from './telegram'
 
@@ -88,24 +88,38 @@ async function setup(req: Request, env: Env, url: URL): Promise<Response> {
     sync = errorMessage(err, LANGS.en)
   }
 
-  // With AI on, reads one sample message to check the key, the model and tool calls.
+  // With AI on, reads a sample message to check the key, the model and tool calls. A
+  // {"message": "..."} body tries your own wording; nothing is saved and no balances are shown.
+  const body = (await req.json().catch(() => null)) as { message?: unknown } | null
+  const sample = typeof body?.message === 'string' && body.message.trim() ? body.message.trim().slice(0, MAX_INPUT) : 'lunch 1200 yen'
   let ai = 'off'
+  let entries: unknown
+  let planned: string | undefined
   try {
     const settings = aiSettings(env)
     const parser = createParser(env)
     if (settings && parser && data) {
-      const result = await parser.parse('lunch 1200 yen', buildContext(data, todayIn(env)))
-      ai =
-        result.kind === 'actions'
-          ? `ok (${settings.provider}, ${settings.model})`
-          : `${settings.provider} (${settings.model}) answered without an entry: ${result.text.slice(0, 200)}`
+      const today = todayIn(env)
+      const result = await parser.parse(sample, buildContext(data, today))
+      if (result.kind === 'actions') {
+        ai = `ok (${settings.provider}, ${settings.model})`
+        const actions = validateActions(result.actions.slice(0, MAX_ACTIONS))
+        await findNewHoldings(env, data, actions)
+        entries = actions.map((a) => (a.type === 'buy' && a.candidates ? { ...a, candidates: a.candidates.map((c) => c.symbol) } : a))
+        try {
+          const p = plan(data, actions, today, LANGS.en)
+          planned = p.ask ? `asks: ${p.ask.question}` : 'ok'
+        } catch (err) {
+          planned = errorMessage(err, LANGS.en)
+        }
+      } else ai = `${settings.provider} (${settings.model}) answered without an entry: ${result.text.slice(0, 200)}`
     } else if (settings) ai = 'not checked: the sync key has to work first'
   } catch (err) {
     ai = errorMessage(err, LANGS.en)
   }
 
   const ok = telegram === 'ok' && sync === 'ok' && (ai === 'off' || ai.startsWith('ok'))
-  return Response.json({ ok, webhook, telegram, sync, ai }, { status: ok ? 200 : 502 })
+  return Response.json({ ok, webhook, telegram, sync, ai, ...(entries ? { sample, entries, plan: planned } : {}) }, { status: ok ? 200 : 502 })
 }
 
 // ---------- updates ----------
@@ -202,6 +216,7 @@ async function respond(env: Env, chat: number, t: Strings, text: string, telegra
  */
 async function propose(env: Env, chat: number, t: Strings, actions: Action[], today: string, data?: Parameters<typeof plan>[0], messageId?: number): Promise<void> {
   data ??= (await load(env)).data
+  await findNewHoldings(env, data, actions)
   const p = plan(data, actions, today, t)
   const id = await store.putPending(env, chat, { actions: p.actions, ask: p.ask, lines: p.lines })
   let text: string
@@ -216,6 +231,16 @@ async function propose(env: Env, chat: number, t: Strings, actions: Action[], to
   }
   if (messageId) await edit(env, chat, messageId, text, keyboard)
   else await send(env, chat, text, keyboard)
+}
+
+/** For buys of something not in your holdings yet, finds the ticker so it can be added. */
+async function findNewHoldings(env: Env, data: Parameters<typeof plan>[0], actions: Action[]): Promise<void> {
+  await Promise.all(
+    actions.map(async (a) => {
+      if (a.type !== 'buy' || a.candidates || a.holding.startsWith('new:') || hasHolding(data, a.holding)) return
+      a.candidates = await lookupSymbols(env, a.holding)
+    })
+  )
 }
 
 // ---------- language ----------

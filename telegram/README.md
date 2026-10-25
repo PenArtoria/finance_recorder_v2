@@ -48,9 +48,12 @@ Bot:  📝 Save this?
 - **Dates**: `today`, `yesterday`, `2026-10-24`, `10-24` or a day of this month (`24`). Without a date, it's today.
 - **Categories**: `#food`, `#groceries`, `#transport`, `#shopping`, `#bills`, `#housing`, `#health`, `#fun`, `#travel`,
   `#education`, `#gifts`; for income `#salary`, `#bonus`, `#side`, `#dividend`, `#refund`.
-- **Trades** without a price use the last price Moneta fetched. The holding has to exist in Moneta already.
+- **Trades** without a price use the current price. Buying something you don't hold yet adds it as a new holding,
+  looked up on Yahoo Finance by ticker or name; if several fit, the bot asks which with buttons. Undo removes it again.
+- **"The bank"**, "my account", "銀行" and the like mean a bank account: the one in the entry's currency, or the bot
+  asks which.
 
-New holdings, card bill payments and balance corrections are still done in the app.
+Card bill payments and balance corrections are still done in the app.
 
 ## Privacy
 
@@ -121,7 +124,8 @@ In PowerShell, type `npx.cmd` and `curl.exe` instead of `npx` and `curl`.
 
    It answers `{"ok":true,…}` and sets up the bot's command menu. If `ok` is false, `telegram`, `sync` or `ai`
    says whether the bot token, the sync key or the AI is the problem. Fix that one and run this again. With AI on,
-   it also sends the AI one sample message ("lunch 1200 yen") to check the key and model.
+   it also sends the AI one sample message ("lunch 1200 yen") to check the key and model. To try your own wording
+   without saving anything, add `-H "Content-Type: application/json" -d '{"message":"…"}'`.
 
 7. **Allow yourself.** Send your bot any message. It replies with your Telegram user id. Add it:
 

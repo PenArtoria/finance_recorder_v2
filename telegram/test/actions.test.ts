@@ -1,7 +1,7 @@
 import type { AppData } from '@shared/types'
 import { describe, expect, it } from 'vitest'
 import { exampleData } from '../../windows/src/renderer/src/core/example'
-import { answer, plan, run, undo, validateActions, type Action } from '../src/actions'
+import { answer, plan, run, undo, validateActions, type Action, type Candidate } from '../src/actions'
 import { BotError } from '../src/env'
 import { LANGS } from '../src/i18n'
 
@@ -205,5 +205,90 @@ describe('validateActions', () => {
   it('drops bad optional fields instead of trusting them', () => {
     const [a] = validateActions([{ type: 'spend', amount: 5, currency: 'dollars', date: '2026-13-40', note: 'x'.repeat(500) }])
     expect(a).toMatchObject({ type: 'spend', amount: 5, currency: undefined, date: undefined, note: undefined })
+  })
+})
+
+describe('buying something new', () => {
+  const quote = (symbol: string, price: number, currency: string) => ({ symbol, price, previousClose: price, currency, fetchedAt: 1 })
+  const panw: Candidate = { symbol: 'PANW', name: 'Palo Alto Networks, Inc.', type: 'stock', exchange: 'NASDAQ', quote: quote('PANW', 350, 'USD') }
+  const panwTo: Candidate = { symbol: 'PANW.TO', name: 'Palo Alto Networks, Inc.', type: 'etf', exchange: 'Toronto', quote: quote('PANW.TO', 25, 'USD') }
+  const withCandidates = (raw: Action[], candidates: Candidate[]) =>
+    validateActions(raw).map((a) => (a.type === 'buy' ? { ...a, candidates } : a))
+
+  it('adds the holding with its first buy, and undo takes it away again', () => {
+    const d = exampleData()
+    const before = structuredClone(d)
+    const p = plan(d, withCandidates([{ type: 'buy', holding: 'panw', total: 350, currency: 'USD', cash: 'Wise USD' }], [panw, panwTo]), today, t)
+    if (p.ask) throw new Error(p.ask.question)
+    expect(p.lines[0]).toContain('<b>Buy 1 PANW</b>')
+    expect(p.lines[0]).toContain('New holding: Palo Alto Networks, Inc.')
+    expect(d.holdings.some((h) => h.symbol === 'PANW')).toBe(false)
+
+    const { steps } = run(d, p.actions, today, t)
+    const h = d.holdings.find((x) => x.symbol === 'PANW')!
+    expect(h).toMatchObject({ name: 'Palo Alto Networks, Inc.', type: 'stock', currency: 'USD', quantity: 1, cost: 350 })
+    expect(h.trades).toHaveLength(1)
+    expect(d.quotes.PANW.price).toBe(350)
+    expect(holding(d, 'ex-wise').quantity).toBe(6200 - 350)
+
+    undo(d, steps)
+    expect(d.holdings).toEqual(before.holdings)
+  })
+
+  it('asks which ticker when the name fits several', () => {
+    const d = exampleData()
+    const p = plan(d, withCandidates([{ type: 'buy', holding: 'palo alto', quantity: 2, cash: 'none' }], [panw, panwTo]), today, t)
+    expect(p.ask?.question).toBe('Which “palo alto” do you mean?')
+    expect(p.ask?.options.map((o) => o.ref)).toEqual(['new:PANW', 'new:PANW.TO'])
+    const next = plan(d, answer(p.actions, p.ask!, 'new:PANW.TO'), today, t)
+    expect(next.ask).toBeUndefined()
+    expect(next.actions[0]).toMatchObject({ holding: 'new:PANW.TO', quantity: 2, total: 50 })
+  })
+
+  it('buys into a holding you already have instead of adding it twice', () => {
+    const d = exampleData()
+    const rklb: Candidate = { symbol: 'RKLB', name: 'Rocket Lab', type: 'stock', exchange: 'NASDAQ', quote: quote('RKLB', 70, 'USD') }
+    const p = planned(d, [{ type: 'buy', holding: 'rklb', quantity: 1, cash: 'none' }])
+    expect(p.actions[0]).toMatchObject({ holding: 'ex-rklb' })
+    const viaLookup = plan(d, withCandidates([{ type: 'buy', holding: 'new:RKLB', quantity: 1, cash: 'none' }], [rklb]), today, t)
+    expect(viaLookup.actions[0]).toMatchObject({ holding: 'ex-rklb' })
+  })
+
+  it('says so when a ticker can’t be found, and won’t sell what you don’t hold', () => {
+    const d = exampleData()
+    expect(() => plan(d, withCandidates([{ type: 'buy', holding: 'zzzz', quantity: 1, cash: 'none' }], []), today, t)).toThrow(
+      expect.objectContaining({ key: 'noSymbol' })
+    )
+    expect(() => plan(d, [{ type: 'sell', holding: 'PANW', quantity: 1, price: 1, cash: 'none' }], today, t)).toThrow(
+      expect.objectContaining({ key: 'noHolding' })
+    )
+  })
+
+  it('ignores candidates an AI tries to pass in', () => {
+    const [a] = validateActions([{ type: 'buy', holding: 'PANW', quantity: 1, candidates: [panw] }])
+    expect(a).not.toHaveProperty('candidates')
+  })
+})
+
+describe('“the bank”', () => {
+  // Example bank accounts: HSBC Everyday (HKD), Wise USD (USD) and a fixed deposit (USD).
+
+  it('means the bank account in the entry’s currency when there is one', () => {
+    const d = exampleData()
+    expect(planned(d, [{ type: 'spend', amount: 100, currency: 'HKD', from: 'the bank' }]).actions[0]).toMatchObject({ from: 'account:ex-hsbc' })
+    expect(planned(d, [{ type: 'income', amount: 100, currency: 'HKD', to: '銀行' }]).actions[0]).toMatchObject({ to: 'account:ex-hsbc' })
+  })
+
+  it('asks between bank accounts only when several fit', () => {
+    const d = exampleData()
+    const p = plan(d, [{ type: 'buy', holding: 'RKLB', total: 350, currency: 'USD', cash: 'my bank' }], today, t)
+    expect(p.ask?.question).toBe('Which bank account?')
+    expect(p.ask?.options.map((o) => o.ref)).toEqual(['account:ex-wise', 'account:ex-fd'])
+  })
+
+  it('still prefers an account actually named like that', () => {
+    const d = exampleData()
+    d.holdings.find((h) => h.id === 'ex-wise')!.name = 'Bank'
+    expect(planned(d, [{ type: 'spend', amount: 1, from: 'bank' }]).actions[0]).toMatchObject({ from: 'account:ex-wise' })
   })
 })
