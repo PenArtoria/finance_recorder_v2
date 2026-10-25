@@ -8,7 +8,7 @@ export type Lang = 'en' | 'ja' | 'zh-Hant' | 'zh-Hans'
 /** Each language's name in that language, for the /language buttons. */
 export const LANGUAGE_NAMES: Record<Lang, string> = { en: 'English', ja: '日本語', 'zh-Hant': '繁體中文', 'zh-Hans': '简体中文' }
 
-export const MENU = ['spend', 'income', 'move', 'buy', 'sell', 'balances', 'undo', 'language', 'help'] as const
+export const MENU = ['spend', 'income', 'move', 'buy', 'sell', 'set', 'balances', 'month', 'undo', 'language', 'help'] as const
 export type MenuCommand = (typeof MENU)[number]
 
 export interface SpendLine {
@@ -52,6 +52,17 @@ export interface TradeLine {
   left?: string
 }
 
+export interface SetLine {
+  name: string
+  was: string
+  now: string
+  /** The difference, with its sign; left out when nothing changes. */
+  change?: string
+  /** A card: the amounts are what it owes. */
+  owed: boolean
+  note?: string
+}
+
 export type ErrorKey =
   | 'noSyncKey'
   | 'badSyncKey'
@@ -82,7 +93,7 @@ export type ErrorKey =
   | 'unknownProvider'
   | 'generic'
 
-type Kind = 'spend' | 'income' | 'move' | 'buy' | 'sell'
+type Kind = 'spend' | 'income' | 'move' | 'buy' | 'sell' | 'set'
 
 /** Row labels on entry cards, punctuation included. */
 interface Labels {
@@ -100,6 +111,8 @@ interface Labels {
   paidFrom: string
   paidTo: string
   newHolding: string
+  was: string
+  now: string
   date: string
 }
 
@@ -136,6 +149,9 @@ export interface Strings {
   cantFind: (query: string) => string
   whichStock: (query: string) => string
   whichBank: string
+  whichCard: string
+  /** Notes under a balance correction. */
+  setNotes: { charge: string; payment: string; same: string; bucket: (account: string) => string }
   /** Command descriptions for Telegram's menu. */
   menu: Record<MenuCommand, string>
   bal: {
@@ -153,6 +169,13 @@ export interface Strings {
     livePrices: string
     empty: string
   }
+  month: {
+    spent: string
+    income: string
+    byCategory: string
+    latest: string
+    none: string
+  }
   language: {
     title: string
     now: (name: string) => string
@@ -160,7 +183,7 @@ export interface Strings {
     fromTelegram: (code: string) => string
     set: string
   }
-  usage: Record<'spend' | 'income' | 'move' | 'buy' | 'sell', string>
+  usage: Record<'spend' | 'income' | 'move' | 'buy' | 'sell' | 'set', string>
   errors: Record<ErrorKey, (p: Record<string, string>) => string>
 }
 
@@ -169,7 +192,8 @@ const COMMANDS =
   '<code>/income 300000 salary to SMBC</code>\n' +
   '<code>/move 700 USD from Wise to IBKR</code>\n' +
   '<code>/buy 3 VWRA at 140 fee 2 from IBKR</code>\n' +
-  '<code>/sell 1 RKLB at 70 to IBKR</code>'
+  '<code>/sell 1 RKLB at 70 to IBKR</code>\n' +
+  '<code>/set SMBC 512300</code>'
 
 const en: Strings = {
   lang: 'en',
@@ -187,7 +211,7 @@ const en: Strings = {
   notTracked: 'not tracked in Moneta',
   noCash: 'No cash moved',
   today: 'Today',
-  kinds: { spend: 'Spend', income: 'Income', move: 'Move', buy: 'Buy', sell: 'Sell' },
+  kinds: { spend: 'Spend', income: 'Income', move: 'Move', buy: 'Buy', sell: 'Sell', set: 'Set' },
   labels: {
     from: 'From: ',
     moveFrom: 'From: ',
@@ -203,6 +227,8 @@ const en: Strings = {
     paidFrom: 'Paid from: ',
     paidTo: 'Paid into: ',
     newHolding: 'New holding: ',
+    was: 'Was: ',
+    now: 'Now: ',
     date: 'Date: '
   },
   onlyText: 'Please send text. Photos and voice messages aren’t supported yet.',
@@ -210,11 +236,11 @@ const en: Strings = {
   help: (ai) =>
     '👋 <b>Moneta bot</b>\nI record your spending, income, transfers and trades in Moneta, and always show you the entry before saving.\n\n' +
     (ai
-      ? '💬 <b>Just write</b>\n<i>lunch 1200 yen from daily</i>\n<i>transfer 700 dollars from Wise to IBKR</i>\n<i>bought 3 VWRA at 140, fee 2</i>\n\n'
+      ? '💬 <b>Just write</b>\n<i>lunch 1200 yen from daily</i>\n<i>transfer 700 dollars from Wise to IBKR</i>\n<i>bought 3 VWRA at 140, fee 2</i>\n<i>SMBC is 512,300 yen now</i>\n\n'
       : '') +
     `✏️ <b>Commands</b>\n${COMMANDS}\n\n` +
-    '📊 <b>More</b>\n/balances — net worth, accounts and investments\n/undo — undo the last entry\n/language — change the language\n\n' +
-    '💡 <b>Tips</b>\n• Without <code>from</code> or <code>to</code>, I use the same place as last time.\n• <code>#food</code> sets the category, <code>on yesterday</code> the date, <code>card Visa</code> a credit card.',
+    '📊 <b>More</b>\n/balances — net worth, accounts and investments\n/month — this month’s spending and income\n/undo — undo the last entry\n/language — change the language\n\n' +
+    '💡 <b>Tips</b>\n• Without <code>from</code> or <code>to</code>, I use the same place as last time.\n• <code>#food</code> sets the category, <code>on yesterday</code> the date, <code>card Visa</code> a credit card.\n• Forgot some entries? <code>/set</code> puts a balance, or what a card owes, straight to the right number.',
   privateBot: (id) =>
     `🔒 This is a private bot.\n\nIf it’s yours, your Telegram user id is <code>${id}</code>. Add it with:\n<code>npx wrangler secret put ALLOWED_USER_IDS</code>`,
   askFrom: 'Where did the money come from?',
@@ -224,13 +250,17 @@ const en: Strings = {
   cantFind: (q) => `I can’t find “${q}”. Which one is it?`,
   whichStock: (q) => `Which “${q}” do you mean?`,
   whichBank: 'Which bank account?',
+  whichCard: 'Which card?',
+  setNotes: { charge: 'The difference is added as a card charge (Other · “Balance correction”).', payment: 'The difference is recorded as a card payment that no bank account made.', same: 'No change.', bucket: (n) => `Only the bucket changes; ${n} stays the same.` },
   menu: {
     spend: 'Record spending',
     income: 'Record income',
     move: 'Move money between buckets or accounts',
     buy: 'Record a buy',
     sell: 'Record a sale',
+    set: 'Set a balance or what a card owes',
     balances: 'Net worth, accounts and investments',
+    month: 'This month’s spending and income',
     undo: 'Undo the last entry',
     language: 'Change the language',
     help: 'How to use the bot'
@@ -250,6 +280,7 @@ const en: Strings = {
     livePrices: 'Live prices',
     empty: 'Nothing to show yet. Add accounts, buckets or holdings in Moneta first.'
   },
+  month: { spent: 'Spent', income: 'Income', byCategory: 'By category', latest: 'Latest', none: 'Nothing recorded this month yet.' },
   language: {
     title: 'Language',
     now: (n) => `Now: ${n}`,
@@ -262,7 +293,8 @@ const en: Strings = {
     income: '✏️ Try: <code>/income 300000 salary to SMBC</code>',
     move: '✏️ Try: <code>/move 700 from Wise to IBKR</code>',
     buy: '✏️ Try: <code>/buy 3 VWRA at 140</code> or <code>/buy VWRA for 500</code>',
-    sell: '✏️ Try: <code>/sell 3 VWRA at 150</code>'
+    sell: '✏️ Try: <code>/sell 3 VWRA at 150</code>',
+    set: '✏️ Try: <code>/set SMBC 512300</code> or <code>/set Visa 45000</code>',
   },
   errors: {
     noSyncKey: () => 'The bot has no sync key yet. Set MONETA_SYNC_KEY (see the README).',
@@ -312,7 +344,7 @@ const ja: Strings = {
   notTracked: 'Moneta で管理していない残高',
   noCash: '現金の移動なし',
   today: '今日',
-  kinds: { spend: '支出', income: '収入', move: '移動', buy: '購入', sell: '売却' },
+  kinds: { spend: '支出', income: '収入', move: '移動', buy: '購入', sell: '売却', set: '残高修正' },
   labels: {
     from: '支払元：',
     moveFrom: '移動元：',
@@ -328,16 +360,18 @@ const ja: Strings = {
     paidFrom: '支払元：',
     paidTo: '入金先：',
     newHolding: '新規銘柄：',
+    was: '修正前：',
+    now: '修正後：',
     date: '日付：'
   },
   onlyText: 'テキストで送ってください。写真や音声にはまだ対応していません。',
   noAi: '🤖 AI がまだ設定されていないため、今はコマンドを使えます。例：\n<code>/spend 1200 lunch from Daily</code>\n\n/help で一覧を表示します。',
   help: (ai) =>
     '👋 <b>Moneta ボット</b>\n支出・収入・振替・売買を Moneta に記録します。記録する前に必ず内容を確認できます。\n\n' +
-    (ai ? '💬 <b>そのまま書くだけ</b>\n<i>昼ご飯 1200円 Dailyから</i>\n<i>Wiseから IBKRへ 700ドル送金</i>\n<i>VWRAを140で3株買った、手数料2</i>\n\n' : '') +
+    (ai ? '💬 <b>そのまま書くだけ</b>\n<i>昼ご飯 1200円 Dailyから</i>\n<i>Wiseから IBKRへ 700ドル送金</i>\n<i>VWRAを140で3株買った、手数料2</i>\n<i>SMBCの残高は512,300円</i>\n\n' : '') +
     `✏️ <b>コマンド</b>\n${COMMANDS}\n\n` +
-    '📊 <b>その他</b>\n/balances — 純資産・口座・投資\n/undo — 最後の記録を取り消す\n/language — 言語を変更\n\n' +
-    '💡 <b>ヒント</b>\n• <code>from</code> や <code>to</code> がなければ、前回と同じ場所を使います。\n• <code>#food</code> でカテゴリ、<code>on yesterday</code> で日付、<code>card Visa</code> でクレジットカードを指定できます。',
+    '📊 <b>その他</b>\n/balances — 純資産・口座・投資\n/month — 今月の支出と収入\n/undo — 最後の記録を取り消す\n/language — 言語を変更\n\n' +
+    '💡 <b>ヒント</b>\n• <code>from</code> や <code>to</code> がなければ、前回と同じ場所を使います。\n• <code>#food</code> でカテゴリ、<code>on yesterday</code> で日付、<code>card Visa</code> でクレジットカードを指定できます。\n• 記録し忘れたときは、<code>/set</code> で残高やカードの未払い額を正しい金額に直せます。',
   privateBot: (id) =>
     `🔒 これは個人用のボットです。\n\nあなたのボットなら、Telegram ユーザーIDは <code>${id}</code> です。次のコマンドで追加してください：\n<code>npx wrangler secret put ALLOWED_USER_IDS</code>`,
   askFrom: 'どこから支払いましたか？',
@@ -347,13 +381,17 @@ const ja: Strings = {
   cantFind: (q) => `「${q}」が見つかりません。どれですか？`,
   whichStock: (q) => `「${q}」はどの銘柄ですか？`,
   whichBank: 'どの銀行口座ですか？',
+  whichCard: 'どのカードですか？',
+  setNotes: { charge: '差額はカードの利用（Other・「Balance correction」）として記録します。', payment: '差額は、銀行口座から引き落とされない支払いとして記録します。', same: '変更はありません。', bucket: (n) => `バケットだけを変更し、${n} はそのままです。` },
   menu: {
     spend: '支出を記録',
     income: '収入を記録',
     move: 'バケットや口座の間でお金を移動',
     buy: '購入を記録',
     sell: '売却を記録',
+    set: '残高やカードの未払い額を修正',
     balances: '純資産・口座・投資を表示',
+    month: '今月の支出と収入',
     undo: '最後の記録を取り消す',
     language: '言語を変更',
     help: '使い方'
@@ -373,6 +411,7 @@ const ja: Strings = {
     livePrices: '最新の価格',
     empty: 'まだ表示するものがありません。先に Moneta で口座・バケット・保有銘柄を追加してください。'
   },
+  month: { spent: '支出', income: '収入', byCategory: 'カテゴリ別', latest: '最近の記録', none: 'この月の記録はまだありません。' },
   language: {
     title: '言語',
     now: (n) => `現在：${n}`,
@@ -385,7 +424,8 @@ const ja: Strings = {
     income: '✏️ 例：<code>/income 300000 salary to SMBC</code>',
     move: '✏️ 例：<code>/move 700 from Wise to IBKR</code>',
     buy: '✏️ 例：<code>/buy 3 VWRA at 140</code> または <code>/buy VWRA for 500</code>',
-    sell: '✏️ 例：<code>/sell 3 VWRA at 150</code>'
+    sell: '✏️ 例：<code>/sell 3 VWRA at 150</code>',
+    set: '✏️ 例：<code>/set SMBC 512300</code> または <code>/set Visa 45000</code>',
   },
   errors: {
     noSyncKey: () => '同期キーが設定されていません。MONETA_SYNC_KEY を設定してください（README を参照）。',
@@ -435,7 +475,7 @@ const zhHant: Strings = {
   notTracked: '不在 Moneta 記錄的餘額',
   noCash: '沒有現金變動',
   today: '今天',
-  kinds: { spend: '支出', income: '收入', move: '轉帳', buy: '買入', sell: '賣出' },
+  kinds: { spend: '支出', income: '收入', move: '轉帳', buy: '買入', sell: '賣出', set: '修正' },
   labels: {
     from: '付款：',
     moveFrom: '轉出：',
@@ -451,16 +491,18 @@ const zhHant: Strings = {
     paidFrom: '付款戶口：',
     paidTo: '存入戶口：',
     newHolding: '新增持倉：',
+    was: '原本：',
+    now: '現在：',
     date: '日期：'
   },
   onlyText: '請傳文字。暫時不支援相片和語音。',
   noAi: '🤖 還沒有設定 AI，所以現在只看得懂指令。例如：\n<code>/spend 1200 lunch from Daily</code>\n\n傳 /help 查看全部指令。',
   help: (ai) =>
     '👋 <b>Moneta 機械人</b>\n我會把你的支出、收入、轉帳和買賣記錄到 Moneta，記錄前一定會先給你確認。\n\n' +
-    (ai ? '💬 <b>直接寫就可以</b>\n<i>午餐 1200 日圓 從 Daily</i>\n<i>從 Wise 轉 700 美元到 IBKR</i>\n<i>以 140 買了 3 股 VWRA，手續費 2</i>\n\n' : '') +
+    (ai ? '💬 <b>直接寫就可以</b>\n<i>午餐 1200 日圓 從 Daily</i>\n<i>從 Wise 轉 700 美元到 IBKR</i>\n<i>以 140 買了 3 股 VWRA，手續費 2</i>\n<i>SMBC 現在有 512,300 日圓</i>\n\n' : '') +
     `✏️ <b>指令</b>\n${COMMANDS}\n\n` +
-    '📊 <b>其他</b>\n/balances — 淨資產、戶口和投資\n/undo — 復原上一筆記錄\n/language — 更改語言\n\n' +
-    '💡 <b>小提示</b>\n• 沒有寫 <code>from</code> 或 <code>to</code> 的話，會用上次的地方。\n• <code>#food</code> 設定類別，<code>on yesterday</code> 設定日期，<code>card Visa</code> 設定信用卡。',
+    '📊 <b>其他</b>\n/balances — 淨資產、戶口和投資\n/month — 本月的支出和收入\n/undo — 復原上一筆記錄\n/language — 更改語言\n\n' +
+    '💡 <b>小提示</b>\n• 沒有寫 <code>from</code> 或 <code>to</code> 的話，會用上次的地方。\n• <code>#food</code> 設定類別，<code>on yesterday</code> 設定日期，<code>card Visa</code> 設定信用卡。\n• 漏記了？用 <code>/set</code> 直接把餘額或信用卡欠款改成正確的數字。',
   privateBot: (id) =>
     `🔒 這是私人機械人。\n\n如果這是你的機械人，你的 Telegram 用戶 ID 是 <code>${id}</code>。用這個指令加入：\n<code>npx wrangler secret put ALLOWED_USER_IDS</code>`,
   askFrom: '錢是從哪裡出的？',
@@ -470,13 +512,17 @@ const zhHant: Strings = {
   cantFind: (q) => `找不到「${q}」，是哪一個？`,
   whichStock: (q) => `「${q}」是哪一隻？`,
   whichBank: '哪一個銀行戶口？',
+  whichCard: '哪一張信用卡？',
+  setNotes: { charge: '差額會記為一筆信用卡消費（Other・「Balance correction」）。', payment: '差額會記為一筆不從銀行戶口扣款的還款。', same: '沒有變動。', bucket: (n) => `只改這個資金桶，${n} 不變。` },
   menu: {
     spend: '記錄支出',
     income: '記錄收入',
     move: '在資金桶或戶口之間轉帳',
     buy: '記錄買入',
     sell: '記錄賣出',
+    set: '修正餘額或信用卡欠款',
     balances: '查看淨資產、戶口和投資',
+    month: '本月的支出和收入',
     undo: '復原上一筆記錄',
     language: '更改語言',
     help: '使用說明'
@@ -496,6 +542,7 @@ const zhHant: Strings = {
     livePrices: '即時價格',
     empty: '還沒有可以顯示的內容。請先在 Moneta 加入戶口、資金桶或持倉。'
   },
+  month: { spent: '支出', income: '收入', byCategory: '按類別', latest: '最近記錄', none: '這個月還沒有記錄。' },
   language: {
     title: '語言',
     now: (n) => `目前：${n}`,
@@ -508,7 +555,8 @@ const zhHant: Strings = {
     income: '✏️ 試試：<code>/income 300000 salary to SMBC</code>',
     move: '✏️ 試試：<code>/move 700 from Wise to IBKR</code>',
     buy: '✏️ 試試：<code>/buy 3 VWRA at 140</code> 或 <code>/buy VWRA for 500</code>',
-    sell: '✏️ 試試：<code>/sell 3 VWRA at 150</code>'
+    sell: '✏️ 試試：<code>/sell 3 VWRA at 150</code>',
+    set: '✏️ 試試：<code>/set SMBC 512300</code> 或 <code>/set Visa 45000</code>',
   },
   errors: {
     noSyncKey: () => '機械人還沒有同步金鑰。請設定 MONETA_SYNC_KEY（見 README）。',
@@ -558,7 +606,7 @@ const zhHans: Strings = {
   notTracked: '不在 Moneta 记录的余额',
   noCash: '没有现金变动',
   today: '今天',
-  kinds: { spend: '支出', income: '收入', move: '转账', buy: '买入', sell: '卖出' },
+  kinds: { spend: '支出', income: '收入', move: '转账', buy: '买入', sell: '卖出', set: '修正' },
   labels: {
     from: '付款：',
     moveFrom: '转出：',
@@ -574,16 +622,18 @@ const zhHans: Strings = {
     paidFrom: '付款账户：',
     paidTo: '存入账户：',
     newHolding: '新增持仓：',
+    was: '原本：',
+    now: '现在：',
     date: '日期：'
   },
   onlyText: '请发文字。暂时不支持图片和语音。',
   noAi: '🤖 还没有设置 AI，所以现在只能看懂指令。例如：\n<code>/spend 1200 lunch from Daily</code>\n\n发送 /help 查看全部指令。',
   help: (ai) =>
     '👋 <b>Moneta 机器人</b>\n我会把你的支出、收入、转账和买卖记录到 Moneta，记录前一定会先让你确认。\n\n' +
-    (ai ? '💬 <b>直接写就可以</b>\n<i>午饭 1200 日元 从 Daily</i>\n<i>从 Wise 转 700 美元到 IBKR</i>\n<i>以 140 买了 3 股 VWRA，手续费 2</i>\n\n' : '') +
+    (ai ? '💬 <b>直接写就可以</b>\n<i>午饭 1200 日元 从 Daily</i>\n<i>从 Wise 转 700 美元到 IBKR</i>\n<i>以 140 买了 3 股 VWRA，手续费 2</i>\n<i>SMBC 现在有 512,300 日元</i>\n\n' : '') +
     `✏️ <b>指令</b>\n${COMMANDS}\n\n` +
-    '📊 <b>其他</b>\n/balances — 净资产、账户和投资\n/undo — 撤销上一笔记录\n/language — 更改语言\n\n' +
-    '💡 <b>小提示</b>\n• 没有写 <code>from</code> 或 <code>to</code> 的话，会用上次的地方。\n• <code>#food</code> 设置类别，<code>on yesterday</code> 设置日期，<code>card Visa</code> 设置信用卡。',
+    '📊 <b>其他</b>\n/balances — 净资产、账户和投资\n/month — 本月的支出和收入\n/undo — 撤销上一笔记录\n/language — 更改语言\n\n' +
+    '💡 <b>小提示</b>\n• 没有写 <code>from</code> 或 <code>to</code> 的话，会用上次的地方。\n• <code>#food</code> 设置类别，<code>on yesterday</code> 设置日期，<code>card Visa</code> 设置信用卡。\n• 漏记了？用 <code>/set</code> 直接把余额或信用卡欠款改成正确的数字。',
   privateBot: (id) =>
     `🔒 这是私人机器人。\n\n如果这是你的机器人，你的 Telegram 用户 ID 是 <code>${id}</code>。用这个指令添加：\n<code>npx wrangler secret put ALLOWED_USER_IDS</code>`,
   askFrom: '钱是从哪里出的？',
@@ -593,13 +643,17 @@ const zhHans: Strings = {
   cantFind: (q) => `找不到“${q}”，是哪一个？`,
   whichStock: (q) => `“${q}”是哪一只？`,
   whichBank: '哪个银行账户？',
+  whichCard: '哪张信用卡？',
+  setNotes: { charge: '差额会记为一笔信用卡消费（Other・“Balance correction”）。', payment: '差额会记为一笔不从银行账户扣款的还款。', same: '没有变动。', bucket: (n) => `只改这个资金桶，${n} 不变。` },
   menu: {
     spend: '记录支出',
     income: '记录收入',
     move: '在资金桶或账户之间转账',
     buy: '记录买入',
     sell: '记录卖出',
+    set: '修正余额或信用卡欠款',
     balances: '查看净资产、账户和投资',
+    month: '本月的支出和收入',
     undo: '撤销上一笔记录',
     language: '更改语言',
     help: '使用说明'
@@ -619,6 +673,7 @@ const zhHans: Strings = {
     livePrices: '实时价格',
     empty: '还没有可以显示的内容。请先在 Moneta 添加账户、资金桶或持仓。'
   },
+  month: { spent: '支出', income: '收入', byCategory: '按类别', latest: '最近记录', none: '这个月还没有记录。' },
   language: {
     title: '语言',
     now: (n) => `当前：${n}`,
@@ -631,7 +686,8 @@ const zhHans: Strings = {
     income: '✏️ 试试：<code>/income 300000 salary to SMBC</code>',
     move: '✏️ 试试：<code>/move 700 from Wise to IBKR</code>',
     buy: '✏️ 试试：<code>/buy 3 VWRA at 140</code> 或 <code>/buy VWRA for 500</code>',
-    sell: '✏️ 试试：<code>/sell 3 VWRA at 150</code>'
+    sell: '✏️ 试试：<code>/sell 3 VWRA at 150</code>',
+    set: '✏️ 试试：<code>/set SMBC 512300</code> 或 <code>/set Visa 45000</code>',
   },
   errors: {
     noSyncKey: () => '机器人还没有同步密钥。请设置 MONETA_SYNC_KEY（见 README）。',
@@ -722,6 +778,15 @@ export function tradeCard(t: Strings, l: TradeLine): string {
     l.cash ? (l.side === 'buy' ? t.labels.paidFrom : t.labels.paidTo) + l.cash : t.noCash,
     l.cash && l.left && t.labels.left + l.left,
     t.labels.date + l.date
+  ])
+}
+
+export function setCard(t: Strings, l: SetLine): string {
+  const owed = l.owed ? ` ${t.bal.owed}` : ''
+  return card(`🧾 <b>${t.kinds.set}: ${l.name}</b>`, [
+    t.labels.was + l.was + owed,
+    t.labels.now + `<b>${l.now}</b>${owed}${l.change ? ` (${l.change})` : ''}`,
+    l.note && `<i>${l.note}</i>`
   ])
 }
 

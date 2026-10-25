@@ -6,8 +6,14 @@ export type AiResult =
   /** A short answer instead, e.g. a question back or "I can only record money". */
   | { kind: 'reply'; text: string }
 
+/** The previous message and the AI's answer to it, when the AI asked something back. */
+export interface Turn {
+  user: string
+  assistant: string
+}
+
 export interface AiParser {
-  parse(message: string, context: AiContext): Promise<AiResult>
+  parse(message: string, context: AiContext, earlier?: Turn[]): Promise<AiResult>
 }
 
 export interface ProviderOptions {

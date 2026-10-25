@@ -2,7 +2,7 @@
 
 import { RECORD_TOOL, systemPrompt } from './prompt'
 import { fromCalls, parseArguments, postJson } from './shared'
-import type { AiParser, ProviderOptions } from './types'
+import type { AiParser, ProviderOptions, Turn } from './types'
 
 interface OutputItem {
   type: string
@@ -13,14 +13,16 @@ interface OutputItem {
 
 export function openai(o: ProviderOptions): AiParser {
   return {
-    async parse(message, context) {
+    async parse(message, context, earlier: Turn[] = []) {
       const data = (await postJson(
         `${o.baseUrl}/responses`,
         o.apiKey,
         {
           model: o.model,
           instructions: systemPrompt(context),
-          input: message,
+          input: earlier.length
+            ? [...earlier.flatMap((x) => [{ role: 'user', content: x.user }, { role: 'assistant', content: x.assistant }]), { role: 'user', content: message }]
+            : message,
           // Every field but `type` is optional, which strict mode doesn't allow.
           tools: [{ type: 'function', name: RECORD_TOOL.name, description: RECORD_TOOL.description, parameters: RECORD_TOOL.schema, strict: false }],
           // Don't keep the conversation on OpenAI's side.

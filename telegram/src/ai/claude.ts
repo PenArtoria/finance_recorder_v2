@@ -5,7 +5,7 @@ import { BotError } from '../env'
 import { esc } from '../i18n'
 import { RECORD_TOOL, systemPrompt } from './prompt'
 import { fromCalls, TIMEOUT_MS } from './shared'
-import type { AiParser, ProviderOptions } from './types'
+import type { AiParser, ProviderOptions, Turn } from './types'
 
 /** Models that can re-run a declined request on another model server-side. Others (such as Haiku) can't. */
 const FALLBACK_MODELS = new Set(['claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5'])
@@ -17,13 +17,13 @@ export function claude(o: ProviderOptions): AiParser {
   const tool: Anthropic.Tool = { name: RECORD_TOOL.name, description: RECORD_TOOL.description, input_schema: RECORD_TOOL.schema }
 
   return {
-    async parse(message, context) {
+    async parse(message, context, earlier: Turn[] = []) {
       const params: Anthropic.MessageCreateParamsNonStreaming = {
         model: o.model,
         max_tokens: 8000,
         system: systemPrompt(context),
         tools: [tool],
-        messages: [{ role: 'user', content: message }],
+        messages: [...earlier.flatMap((x): Anthropic.MessageParam[] => [{ role: 'user', content: x.user }, { role: 'assistant', content: x.assistant }]), { role: 'user', content: message }],
         // Reading one chat message is a simple job: low effort is the fastest and cheapest.
         ...(NO_EFFORT.test(o.model) ? {} : { output_config: { effort: 'low' } })
       }

@@ -21,3 +21,11 @@ CREATE TABLE IF NOT EXISTS prefs (
   chat INTEGER PRIMARY KEY,
   lang TEXT NOT NULL
 );
+
+-- The AI's last question to a chat and the message it answered (10 minutes, encrypted),
+-- so the next message can answer it.
+CREATE TABLE IF NOT EXISTS recent (
+  chat INTEGER PRIMARY KEY,
+  blob TEXT NOT NULL,
+  expires INTEGER NOT NULL
+);

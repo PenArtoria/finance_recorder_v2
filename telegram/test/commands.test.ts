@@ -75,3 +75,30 @@ describe('parseDate', () => {
     expect(parseDate(['someday'], today)).toBeNull()
   })
 })
+
+describe('/set and everyday amounts', () => {
+  it('reads a name and the balance it is now', () => {
+    expect(entry('/set SMBC 512300')).toEqual({ type: 'set', target: 'SMBC', amount: 512300, currency: undefined })
+    expect(entry('/set Japan trip to 12000 HKD')).toMatchObject({ target: 'Japan trip', amount: 12000, currency: 'HKD' })
+    expect(entry('/set Visa 0')).toMatchObject({ target: 'Visa', amount: 0 })
+    expect(entry('/set 生活費 5万円')).toMatchObject({ target: '生活費', amount: 50000, currency: 'JPY' })
+    expect(parseCommand('/set 500', today)).toEqual({ kind: 'usage', command: 'set' })
+  })
+
+  it('understands 万, k, m and currency words', () => {
+    expect(entry('/spend 3万 rent')).toMatchObject({ amount: 30000, note: 'rent' })
+    expect(entry('/spend 3万円 rent')).toMatchObject({ amount: 30000, currency: 'JPY' })
+    expect(entry('/spend 5k coffee')).toMatchObject({ amount: 5000, note: 'coffee' })
+    expect(entry('/income 1.2m bonus')).toMatchObject({ amount: 1200000, note: 'bonus' })
+    expect(entry('/spend 1200 yen lunch')).toMatchObject({ amount: 1200, currency: 'JPY', note: 'lunch' })
+    expect(entry('/move 50 dollars from Wise to IBKR')).toMatchObject({ amount: 50, currency: 'USD', from: 'Wise', to: 'IBKR' })
+    expect(entry('/spend 80 港幣 lunch')).toMatchObject({ amount: 80, currency: 'HKD' })
+  })
+})
+
+describe('/sell all', () => {
+  it('reads “all” as every unit', () => {
+    expect(entry('/sell all RKLB at 70')).toMatchObject({ type: 'sell', holding: 'RKLB', all: true, price: 70 })
+    expect(entry('/sell 2 RKLB')).toMatchObject({ quantity: 2, all: undefined })
+  })
+})

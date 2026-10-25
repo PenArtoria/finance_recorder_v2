@@ -68,16 +68,41 @@ export function send(env: Env, chat: number, html: string, keyboard?: Keyboard):
   })
 }
 
+/** Splits a long message between paragraphs, so no part goes over Telegram's limit. */
+export function splitMessage(html: string, max = MAX_TEXT): string[] {
+  const parts: string[] = []
+  let current = ''
+  for (const paragraph of html.split('\n\n')) {
+    const next = current ? `${current}\n\n${paragraph}` : paragraph
+    if (next.length > max && current) {
+      parts.push(current)
+      current = paragraph
+    } else current = next
+  }
+  if (current) parts.push(current)
+  return parts
+}
+
+export async function sendLong(env: Env, chat: number, html: string): Promise<void> {
+  for (const part of splitMessage(html)) await send(env, chat, part)
+}
+
 /** Replaces a message's text and buttons (no keyboard removes them). */
-export function edit(env: Env, chat: number, messageId: number, html: string, keyboard: Keyboard = []): Promise<unknown> {
-  return tg(env, 'editMessageText', {
-    chat_id: chat,
-    message_id: messageId,
-    text: clip(html),
-    parse_mode: 'HTML',
-    link_preview_options: { is_disabled: true },
-    reply_markup: { inline_keyboard: keyboard }
-  })
+export async function edit(env: Env, chat: number, messageId: number, html: string, keyboard: Keyboard = []): Promise<unknown> {
+  try {
+    return await tg(env, 'editMessageText', {
+      chat_id: chat,
+      message_id: messageId,
+      text: clip(html),
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+      reply_markup: { inline_keyboard: keyboard }
+    })
+  } catch (err) {
+    // Pressing a button twice can ask for the same text again; that's fine.
+    if (/message is not modified/i.test(String((err as Error).message))) return undefined
+    throw err
+  }
 }
 
 /** Stops the spinner on a pressed button, optionally showing a short notice. */
