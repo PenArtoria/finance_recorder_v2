@@ -5,16 +5,22 @@ phone apps pick the change up on their next sync.
 
 ```
 You:  /spend 1200 lunch from Daily
-Bot:  💸 ¥1,200 Food & drink · "lunch" · today
-          from Daily · SMBC → ¥23,400 left
-      Save this?            [✅ Save] [❌ Cancel]
+
+Bot:  📝 Save this?
+      ┃ 💸 Spend ¥1,200
+      ┃ Food & drink · "lunch"
+      ┃ From: Daily (SMBC)
+      ┃ Left: ¥23,400
+      ┃ Date: Today
+      [✅ Save] [❌ Cancel]
 ```
 
 - **Nothing is saved until you tap ✅ Save.** Every saved entry has an **↩️ Undo** button, and `/undo` undoes the last one.
 - It uses Moneta's own logic, so buckets, their bank accounts, card budgets and average costs change exactly as they
   would in the app.
 - If a name could mean several buckets or accounts, or none, it asks with buttons.
-- It replies in English, Japanese or Chinese (Traditional or Simplified), following your Telegram language.
+- It replies in English, Japanese or Chinese (Traditional or Simplified). It follows your Telegram language until
+  you pick one with `/language`.
 - Without AI it understands the commands below. Turn on an AI and you can also write normally
   ("lunch 1200 yen from daily", "transfer 700 dollars from Wise to IBKR"). Claude, OpenAI, Gemini, DeepSeek,
   OpenRouter and other OpenAI-style services all work, and switching is one setting. See [AI](#ai).
@@ -29,8 +35,9 @@ Bot:  💸 ¥1,200 Food & drink · "lunch" · today
 | `/buy <units> <holding> [at <price>] [fee <fee>] [from <place>] [on <date>]` | `/buy 3 VWRA at 140 fee 2 from IBKR` |
 | `/buy <holding> for <total> [at <price>] …` | `/buy VWRA for 500 from IBKR` |
 | `/sell <units> <holding> [at <price>] [fee <fee>] [to <place>] [on <date>]` | `/sell 1 RKLB at 70 to IBKR` |
-| `/balances` | Buckets and bank accounts with their balances |
+| `/balances` | Net worth, investments (with live prices), bank accounts, buckets, other assets and cards |
 | `/undo` | Undoes the last saved entry |
+| `/language` | Picks the reply language, or goes back to following Telegram |
 | `/help` | How to use the bot |
 
 - **Places** are your buckets and bank accounts, by name or part of a name, in any language (`from daily`, `from 生活費`).
@@ -127,7 +134,7 @@ In PowerShell, type `npx.cmd` and `curl.exe` instead of `npx` and `curl`.
 
 | Setting | What it does |
 |---|---|
-| `LANGUAGE` | Always reply in `en`, `ja`, `zh-Hant` or `zh-Hans`, whatever each person's Telegram language is |
+| `LANGUAGE` | Reply in `en`, `ja`, `zh-Hant` or `zh-Hans` instead of each person's Telegram language. `/language` in a chat still wins |
 | `SYNC_URL` | Address of a sync service on another Cloudflare account. Remove the `[[services]]` block from `wrangler.toml` to use it |
 | `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` | See [AI](#ai) |
 

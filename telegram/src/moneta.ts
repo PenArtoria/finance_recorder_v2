@@ -3,8 +3,9 @@
 // carries the version it was based on, so if another device saved in between, the
 // bot loads the new copy and makes its change again.
 
-import type { AppData } from '@shared/types'
+import type { AppData, QuoteResult } from '@shared/types'
 import { DATA_VERSION, normalizeData } from '../../windows/src/renderer/src/core/data'
+import { isUnits } from '../../windows/src/renderer/src/core/trades'
 import { deriveKeys, open, seal, type SyncKeys } from '../../windows/src/renderer/src/sync/crypto'
 import { BotError, type Env } from './env'
 
@@ -86,4 +87,22 @@ export async function sealNote(env: Env, value: unknown): Promise<string> {
 
 export async function openNote<T>(env: Env, blob: string): Promise<T> {
   return JSON.parse(await open((await keysOf(env)).key, blob)) as T
+}
+
+/**
+ * Puts current prices into `data` (in memory only), from the sync service's price lookup.
+ * Returns true when every holding got a fresh price.
+ */
+export async function refreshQuotes(env: Env, data: AppData): Promise<boolean> {
+  const symbols = [...new Set(data.holdings.filter((h) => h.symbol && isUnits(h.type)).map((h) => h.symbol))]
+  if (!symbols.length) return false
+  try {
+    const res = await call(env, `/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return false
+    const body = (await res.json()) as QuoteResult
+    for (const q of body.quotes ?? []) data.quotes[q.symbol] = q
+    return (body.quotes?.length ?? 0) > 0 && !body.errors?.length
+  } catch {
+    return false
+  }
 }
