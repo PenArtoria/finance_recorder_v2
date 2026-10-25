@@ -55,6 +55,9 @@ async function setup(req: Request, env: Env, url: URL): Promise<Response> {
     return Response.json({ ok: false, error: 'TELEGRAM_WEBHOOK_SECRET must be 16-256 letters, digits, _ or -.' }, { status: 400 })
   }
   const webhook = `${url.origin}/telegram`
+
+  // Checks the bot token and the sync key, and says which one is wrong.
+  let telegram = 'ok'
   try {
     await tg(env, 'setWebhook', {
       url: webhook,
@@ -70,9 +73,19 @@ async function setup(req: Request, env: Env, url: URL): Promise<Response> {
       await tg(env, 'setMyCommands', { commands: menu(LANGS['zh-Hans']), language_code: 'zh' })
     }
   } catch (err) {
-    return Response.json({ ok: false, error: String((err as Error).message) }, { status: 502 })
+    const message = String((err as Error).message)
+    telegram = /\((401|404)\)/.test(message)
+      ? 'Telegram doesn’t recognise TELEGRAM_BOT_TOKEN. Set it again with just the token from BotFather (like 123456789:AA…).'
+      : message
   }
-  return Response.json({ ok: true, webhook })
+  let sync = 'ok'
+  try {
+    await load(env)
+  } catch (err) {
+    sync = err instanceof BotError ? errorText(err, LANGS.en) : String((err as Error).message)
+  }
+  const ok = telegram === 'ok' && sync === 'ok'
+  return Response.json({ ok, webhook, telegram, sync }, { status: ok ? 200 : 502 })
 }
 
 // ---------- updates ----------
