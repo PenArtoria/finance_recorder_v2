@@ -8,7 +8,7 @@
 // you confirm. Saved entries get an ↩️ Undo button.
 
 import { answer, MAX_ACTIONS, plan, run, undo, validateActions, type Action } from './actions'
-import { aiConfigured, createParser } from './ai'
+import { aiConfigured, aiSettings, createParser } from './ai'
 import { buildContext } from './ai/context'
 import { balances } from './balances'
 import { parseCommand } from './commands'
@@ -81,13 +81,31 @@ async function setup(req: Request, env: Env, url: URL): Promise<Response> {
       : message
   }
   let sync = 'ok'
+  let data: Awaited<ReturnType<typeof load>>['data'] | null = null
   try {
-    await load(env)
+    data = (await load(env)).data
   } catch (err) {
     sync = errorMessage(err, LANGS.en)
   }
-  const ok = telegram === 'ok' && sync === 'ok'
-  return Response.json({ ok, webhook, telegram, sync }, { status: ok ? 200 : 502 })
+
+  // With AI on, reads one sample message to check the key, the model and tool calls.
+  let ai = 'off'
+  try {
+    const settings = aiSettings(env)
+    const parser = createParser(env)
+    if (settings && parser && data) {
+      const result = await parser.parse('lunch 1200 yen', buildContext(data, todayIn(env)))
+      ai =
+        result.kind === 'actions'
+          ? `ok (${settings.provider}, ${settings.model})`
+          : `${settings.provider} (${settings.model}) answered without an entry: ${result.text.slice(0, 200)}`
+    } else if (settings) ai = 'not checked: the sync key has to work first'
+  } catch (err) {
+    ai = errorMessage(err, LANGS.en)
+  }
+
+  const ok = telegram === 'ok' && sync === 'ok' && (ai === 'off' || ai.startsWith('ok'))
+  return Response.json({ ok, webhook, telegram, sync, ai }, { status: ok ? 200 : 502 })
 }
 
 // ---------- updates ----------
