@@ -1,0 +1,12 @@
+# Copy to .dev.vars for `npm run dev`. Never commit .dev.vars.
+TELEGRAM_BOT_TOKEN=123456:ABC-your-bot-token
+TELEGRAM_WEBHOOK_SECRET=any-long-random-text
+ALLOWED_USER_IDS=123456789
+MONETA_SYNC_KEY=your-sync-key-from-moneta-settings
+TIMEZONE=Asia/Tokyo
+# LANGUAGE=en
+# AI: claude, openai, gemini, deepseek, openrouter or custom (see README.md)
+# AI_PROVIDER=claude
+# AI_API_KEY=
+# AI_MODEL=
+# AI_BASE_URL=

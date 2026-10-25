@@ -8,6 +8,7 @@ goals and month-by-month net worth, in any currency.
 | [`windows/`](windows/) | Windows desktop app (Electron + React) | Working |
 | [`ios/`](ios/) | iPhone home-screen app (PWA) using the same screens | Working |
 | [`cloud/`](cloud/) | Cloudflare Worker: hosts the phone app, fetches prices, stores encrypted sync data | Working |
+| [`telegram/`](telegram/) | Optional Telegram bot: records spending, income, transfers and trades from chat, with commands or AI | Working |
 
 See [`windows/README.md`](windows/README.md) for features, building the installer and where data is stored.
 

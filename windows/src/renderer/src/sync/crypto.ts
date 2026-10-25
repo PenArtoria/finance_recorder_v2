@@ -61,7 +61,8 @@ const canCompress = typeof CompressionStream !== 'undefined' && typeof Decompres
 
 /** Encrypts text. Format: [1, compressed?, iv(12), ciphertext], base64url. */
 export async function seal(key: CryptoKey, text: string): Promise<string> {
-  let body: Bytes = enc.encode(text)
+  // The cast is for Cloudflare's types, where encode() isn't typed as ArrayBuffer-backed.
+  let body = enc.encode(text) as Bytes
   let flag = 0
   if (canCompress) {
     body = await pipe(body, new CompressionStream('gzip'))
