@@ -7,13 +7,14 @@
 // bot shows what it understood with ✅ / ❌ buttons and only changes your data once
 // you confirm. Saved entries get an ↩️ Undo button.
 
-import { answer, balances, MAX_ACTIONS, plan, run, undo, validateActions, type Action } from './actions'
+import { answer, MAX_ACTIONS, plan, run, undo, validateActions, type Action } from './actions'
 import { aiConfigured, createParser } from './ai'
 import { buildContext } from './ai/context'
+import { balances } from './balances'
 import { parseCommand } from './commands'
 import { allowedUsers, BotError, todayIn, type Env } from './env'
-import { esc, LANGS, MENU, pickLang, type ErrorKey, type Strings } from './i18n'
-import { load, update } from './moneta'
+import { esc, LANGS, LANGUAGE_NAMES, MENU, pickLang, struck, withCards, type ErrorKey, type Lang, type Strings } from './i18n'
+import { load, refreshQuotes, update } from './moneta'
 import * as store from './store'
 import { answerCallback, edit, rows, send, tg, typing, type Keyboard, type TgCallback, type TgMessage, type TgUpdate } from './telegram'
 
@@ -44,6 +45,8 @@ function sameSecret(given: string | null, expected: string | undefined): boolean
   return a.length === b.length && crypto.subtle.timingSafeEqual(a, b)
 }
 
+const menu = (t: Strings) => MENU.map((command) => ({ command, description: t.menu[command] }))
+
 // ---------- setup ----------
 
 async function setup(req: Request, env: Env, url: URL): Promise<Response> {
@@ -65,9 +68,8 @@ async function setup(req: Request, env: Env, url: URL): Promise<Response> {
       allowed_updates: ['message', 'callback_query'],
       drop_pending_updates: true
     })
-    const menu = (t: Strings) => MENU.map((command) => ({ command, description: t.menu[command] }))
     // The default menu, plus translated ones for people whose Telegram is in Japanese or Chinese.
-    await tg(env, 'setMyCommands', { commands: menu(pickLang(env.LANGUAGE, 'en')) })
+    await tg(env, 'setMyCommands', { commands: menu(pickLang(env.LANGUAGE || 'en')) })
     if (!env.LANGUAGE) {
       await tg(env, 'setMyCommands', { commands: menu(LANGS.ja), language_code: 'ja' })
       await tg(env, 'setMyCommands', { commands: menu(LANGS['zh-Hans']), language_code: 'zh' })
@@ -82,7 +84,7 @@ async function setup(req: Request, env: Env, url: URL): Promise<Response> {
   try {
     await load(env)
   } catch (err) {
-    sync = err instanceof BotError ? errorText(err, LANGS.en) : String((err as Error).message)
+    sync = errorMessage(err, LANGS.en)
   }
   const ok = telegram === 'ok' && sync === 'ok'
   return Response.json({ ok, webhook, telegram, sync }, { status: ok ? 200 : 502 })
@@ -100,30 +102,38 @@ async function handle(env: Env, update: TgUpdate): Promise<void> {
   }
 }
 
-function errorText(err: unknown, t: Strings): string {
+/** The chat's /language choice, else LANGUAGE, else the person's Telegram language. */
+async function langFor(env: Env, chat: number, telegramCode: string | undefined): Promise<Strings> {
+  const saved = await store.getLang(env, chat).catch(() => null)
+  return pickLang(saved || env.LANGUAGE || telegramCode)
+}
+
+function errorMessage(err: unknown, t: Strings): string {
   if (err instanceof BotError) return (t.errors[err.key as ErrorKey] ?? t.errors.generic)(err.params)
   console.error(err instanceof Error ? err.stack ?? err.message : err)
   return t.errors.generic({})
 }
 
+const errorText = (err: unknown, t: Strings) => `⚠️ ${errorMessage(err, t)}`
+
 async function onMessage(env: Env, msg: TgMessage): Promise<void> {
   if (msg.chat.type !== 'private' || !msg.from) return
-  const t = pickLang(env.LANGUAGE, msg.from.language_code)
   const chat = msg.chat.id
   const allowed = allowedUsers(env)
   if (!allowed.has(msg.from.id)) {
     // Until someone is allowed, tell whoever writes their id so the owner can add theirs.
-    if (!allowed.size) await send(env, chat, t.privateBot(String(msg.from.id)))
+    if (!allowed.size) await send(env, chat, pickLang(env.LANGUAGE || msg.from.language_code).privateBot(String(msg.from.id)))
     return
   }
+  const t = await langFor(env, chat, msg.from.language_code)
   try {
-    await respond(env, chat, t, (msg.text ?? '').trim())
+    await respond(env, chat, t, (msg.text ?? '').trim(), msg.from.language_code)
   } catch (err) {
     await send(env, chat, errorText(err, t))
   }
 }
 
-async function respond(env: Env, chat: number, t: Strings, text: string): Promise<void> {
+async function respond(env: Env, chat: number, t: Strings, text: string, telegramCode: string | undefined): Promise<void> {
   if (!text) return void (await send(env, chat, esc(t.onlyText)))
   if (text.length > MAX_INPUT) throw new BotError('tooLong')
   const today = todayIn(env)
@@ -134,10 +144,16 @@ async function respond(env: Env, chat: number, t: Strings, text: string): Promis
       case 'help':
       case 'unknown':
         return void (await send(env, chat, t.help(aiConfigured(env))))
-      case 'balances':
-        return void (await send(env, chat, balances((await load(env)).data, t)))
+      case 'balances': {
+        void typing(env, chat)
+        const { data } = await load(env)
+        const live = await refreshQuotes(env, data)
+        return void (await send(env, chat, balances(data, t, { live, timeZone: env.TIMEZONE })))
+      }
       case 'undo':
         return undoLatest(env, chat, t)
+      case 'language':
+        return showLanguages(env, chat, t, telegramCode)
       case 'usage':
         return void (await send(env, chat, t.usage[cmd.command]))
       case 'actions':
@@ -157,7 +173,7 @@ async function respond(env: Env, chat: number, t: Strings, text: string): Promis
     console.error('AI failed:', err instanceof Error ? err.message : err)
     throw new BotError('aiFailed')
   }
-  if (result.kind === 'reply') return void (await send(env, chat, esc(result.text.slice(0, 1000))))
+  if (result.kind === 'reply') return void (await send(env, chat, `💬 ${esc(result.text.slice(0, 1000))}`))
   const actions = validateActions(result.actions.slice(0, MAX_ACTIONS))
   return propose(env, chat, t, actions, today, data)
 }
@@ -169,19 +185,45 @@ async function respond(env: Env, chat: number, t: Strings, text: string): Promis
 async function propose(env: Env, chat: number, t: Strings, actions: Action[], today: string, data?: Parameters<typeof plan>[0], messageId?: number): Promise<void> {
   data ??= (await load(env)).data
   const p = plan(data, actions, today, t)
-  const id = await store.putPending(env, chat, { actions: p.actions, ask: p.ask })
+  const id = await store.putPending(env, chat, { actions: p.actions, ask: p.ask, lines: p.lines })
   let text: string
   let keyboard: Keyboard
   if (p.ask) {
-    text = p.ask.question
+    text = `❓ <b>${p.ask.question}</b>`
     keyboard = rows(p.ask.options.map((o, i) => ({ text: o.label, callback_data: `pick:${id}:${i}` })))
     keyboard.push([{ text: t.cancel, callback_data: `no:${id}` }])
   } else {
-    text = `${p.lines.join('\n\n')}\n\n<b>${esc(t.confirm)}</b>`
+    text = withCards(`📝 <b>${esc(t.confirm)}</b>`, p.lines)
     keyboard = [[{ text: t.save, callback_data: `ok:${id}` }, { text: t.cancel, callback_data: `no:${id}` }]]
   }
   if (messageId) await edit(env, chat, messageId, text, keyboard)
   else await send(env, chat, text, keyboard)
+}
+
+// ---------- language ----------
+
+async function showLanguages(env: Env, chat: number, t: Strings, telegramCode: string | undefined): Promise<void> {
+  const saved = (await store.getLang(env, chat).catch(() => null)) as Lang | null
+  const current = saved
+    ? LANGUAGE_NAMES[saved] ?? saved
+    : `${t.language.auto} · ${LANGUAGE_NAMES[pickLang(env.LANGUAGE || telegramCode).lang]}, ${t.language.fromTelegram(telegramCode || '?')}`
+  const mark = (on: boolean, label: string) => (on ? `✓ ${label}` : label)
+  const keyboard = rows((Object.keys(LANGUAGE_NAMES) as Lang[]).map((l) => ({ text: mark(saved === l, LANGUAGE_NAMES[l]), callback_data: `lang:${l}` })))
+  keyboard.push([{ text: mark(!saved, `🔄 ${t.language.auto}`), callback_data: 'lang:auto' }])
+  await send(env, chat, `🌐 <b>${esc(t.language.title)}</b>\n${esc(t.language.now(current))}`, keyboard)
+}
+
+async function setLanguage(env: Env, chat: number, messageId: number, choice: string, telegramCode: string | undefined): Promise<void> {
+  const lang = choice in LANGUAGE_NAMES ? (choice as Lang) : null
+  if (!lang && choice !== 'auto') return
+  await store.setLang(env, chat, lang)
+  const t = lang ? LANGS[lang] : pickLang(env.LANGUAGE || telegramCode)
+  // This chat's command menu follows the choice too.
+  const scope = { type: 'chat', chat_id: chat }
+  await (lang ? tg(env, 'setMyCommands', { commands: menu(t), scope }) : tg(env, 'deleteMyCommands', { scope })).catch((err) =>
+    console.error('could not set the menu:', err instanceof Error ? err.message : err)
+  )
+  await edit(env, chat, messageId, `🌐 ${esc(t.language.set)}`)
 }
 
 // ---------- buttons ----------
@@ -189,16 +231,16 @@ async function propose(env: Env, chat: number, t: Strings, actions: Action[], to
 async function onButton(env: Env, q: TgCallback): Promise<void> {
   const msg = q.message
   if (!msg || !allowedUsers(env).has(q.from.id)) return void (await answerCallback(env, q.id))
-  const t = pickLang(env.LANGUAGE, q.from.language_code)
   const chat = msg.chat.id
+  const t = await langFor(env, chat, q.from.language_code)
   const [kind, id = '', extra] = (q.data ?? '').split(':')
   let notice: string | undefined
   try {
     if (kind === 'ok') notice = await confirm(env, chat, msg.message_id, t, id)
-    else if (kind === 'no') {
-      if (await store.takePending(env, chat, id)) await edit(env, chat, msg.message_id, esc(t.cancelled))
-    } else if (kind === 'pick') notice = await pick(env, chat, msg.message_id, t, id, Number(extra))
+    else if (kind === 'no') await cancel(env, chat, msg.message_id, t, id)
+    else if (kind === 'pick') notice = await pick(env, chat, msg.message_id, t, id, Number(extra))
     else if (kind === 'undo') notice = await undoSaved(env, chat, msg.message_id, t, id)
+    else if (kind === 'lang') await setLanguage(env, chat, msg.message_id, id, q.from.language_code)
   } catch (err) {
     await edit(env, chat, msg.message_id, errorText(err, t)).catch(() => send(env, chat, errorText(err, t)))
   }
@@ -217,8 +259,15 @@ async function confirm(env: Env, chat: number, messageId: number, t: Strings, id
     console.error('could not keep undo:', err instanceof Error ? err.message : err)
     return null
   })
-  await edit(env, chat, messageId, `${lines.join('\n\n')}\n\n<b>${esc(t.saved)}</b>`, undoId ? [[{ text: t.undo, callback_data: `undo:${undoId}` }]] : [])
+  await edit(env, chat, messageId, withCards(`✅ <b>${esc(t.saved)}</b>`, lines), undoId ? [[{ text: t.undo, callback_data: `undo:${undoId}` }]] : [])
   return undefined
+}
+
+async function cancel(env: Env, chat: number, messageId: number, t: Strings, id: string): Promise<void> {
+  const p = await store.takePending(env, chat, id)
+  if (!p) return
+  const status = `❌ <b>${esc(t.cancelled)}</b>`
+  await edit(env, chat, messageId, p.lines?.length && !p.ask ? withCards(status, p.lines.map(struck)) : status)
 }
 
 async function pick(env: Env, chat: number, messageId: number, t: Strings, id: string, index: number): Promise<string | undefined> {
@@ -229,13 +278,13 @@ async function pick(env: Env, chat: number, messageId: number, t: Strings, id: s
   return undefined
 }
 
-const struck = (lines: string[]) => lines.map((l) => `<s>${l}</s>`).join('\n\n')
+const undoneText = (t: Strings, lines: string[]) => withCards(`↩️ <b>${esc(t.undone)}</b>`, lines.map(struck))
 
 async function undoSaved(env: Env, chat: number, messageId: number, t: Strings, id: string): Promise<string | undefined> {
   const s = await store.takeSaved(env, chat, id)
   if (!s) return t.nothingToUndo
   await update(env, (data) => undo(data, s.steps))
-  await edit(env, chat, messageId, `${struck(s.lines)}\n\n<b>${esc(t.undone)}</b>`)
+  await edit(env, chat, messageId, undoneText(t, s.lines))
   return undefined
 }
 
@@ -243,6 +292,6 @@ async function undoLatest(env: Env, chat: number, t: Strings): Promise<void> {
   const s = await store.takeSaved(env, chat)
   if (!s) return void (await send(env, chat, esc(t.nothingToUndo)))
   await update(env, (data) => undo(data, s.steps))
-  if (s.messageId) await edit(env, chat, s.messageId, `${struck(s.lines)}\n\n<b>${esc(t.undone)}</b>`).catch(() => undefined)
-  await send(env, chat, `${struck(s.lines)}\n\n<b>${esc(t.undone)}</b>`)
+  if (s.messageId) await edit(env, chat, s.messageId, undoneText(t, s.lines)).catch(() => undefined)
+  await send(env, chat, undoneText(t, s.lines))
 }

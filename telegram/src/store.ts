@@ -1,5 +1,5 @@
-// The bot's own short-lived notes, kept in D1 and encrypted with the sync key:
-// entries waiting for ✅ / ❌ (30 minutes) and saved entries that can be undone (7 days).
+// The bot's own notes in D1. Entries waiting for ✅ / ❌ (30 minutes) and saved entries
+// that can be undone (7 days) are encrypted with the sync key; each chat's language isn't.
 
 import type { Action, Ask, Step } from './actions'
 import type { Env } from './env'
@@ -11,6 +11,8 @@ const UNDO_MS = 7 * 24 * 60 * 60 * 1000
 export interface Pending {
   actions: Action[]
   ask?: Ask
+  /** The entries as shown (HTML), to cross out if cancelled. */
+  lines?: string[]
 }
 
 export interface Saved {
@@ -70,4 +72,16 @@ export async function takeSaved(env: Env, chat: number, id?: string): Promise<Sa
         .bind(chat, now)
         .first<{ blob: string }>()
   return row ? openNote<Saved>(env, row.blob) : null
+}
+
+/** The language a chat picked with /language, if any. */
+export async function getLang(env: Env, chat: number): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT lang FROM prefs WHERE chat = ?').bind(chat).first<{ lang: string }>()
+  return row?.lang ?? null
+}
+
+/** Saves a chat's language; null goes back to following Telegram. */
+export async function setLang(env: Env, chat: number, lang: string | null): Promise<void> {
+  if (lang) await env.DB.prepare('INSERT OR REPLACE INTO prefs (chat, lang) VALUES (?, ?)').bind(chat, lang).run()
+  else await env.DB.prepare('DELETE FROM prefs WHERE chat = ?').bind(chat).run()
 }

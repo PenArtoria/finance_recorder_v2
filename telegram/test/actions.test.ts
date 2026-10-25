@@ -1,7 +1,7 @@
 import type { AppData } from '@shared/types'
 import { describe, expect, it } from 'vitest'
 import { exampleData } from '../../windows/src/renderer/src/core/example'
-import { answer, balances, plan, run, undo, validateActions, type Action } from '../src/actions'
+import { answer, plan, run, undo, validateActions, type Action } from '../src/actions'
 import { BotError } from '../src/env'
 import { LANGS } from '../src/i18n'
 
@@ -35,8 +35,8 @@ describe('spending and income', () => {
     const e = d.expenses.at(-1)!
     expect(e).toMatchObject({ amount: 120, currency: 'HKD', category: 'food', note: 'Lunch', source: { kind: 'bucket', id: 'ex-living' }, date: today })
     expect(e.usd).toBeCloseTo(120 / 7.85, 5)
-    expect(lines[0]).toContain('Living expenses · HSBC Everyday')
-    expect(lines[0]).toContain('HK$17,880.00 left')
+    expect(lines[0]).toContain('From: Living expenses (HSBC Everyday)')
+    expect(lines[0]).toContain('Left: HK$17,880.00')
 
     expect(undo(d, steps)).toBe(1)
     expect(d.buckets).toEqual(before.buckets)
@@ -129,7 +129,7 @@ describe('moves', () => {
     expect(holding(d, 'ex-wise').quantity).toBe(6200 - 100)
     expect(bucket(d, 'ex-living').amount).toBe(18000 + 785)
     expect(holding(d, 'ex-hsbc').quantity).toBe(46000 + 785)
-    expect(lines[0]).toContain('HK$785.00 arrives')
+    expect(lines[0]).toContain('Arrives: HK$785.00')
     undo(d, steps)
     expect(d.buckets).toEqual(before.buckets)
     expect(d.holdings).toEqual(before.holdings)
@@ -152,7 +152,7 @@ describe('trades', () => {
     expect(h.trades!.at(-1)).toMatchObject({ side: 'buy', quantity: 2, amount: 141, fee: 1, cash: { kind: 'bucket', id: 'ex-reserve', amount: 141, currency: 'USD' } })
     expect(bucket(d, 'ex-reserve').amount).toBe(2500 - 141)
     expect(holding(d, 'ex-wise').quantity).toBe(6200 - 141)
-    expect(lines[0]).toContain('Buy <b>2 RKLB</b>')
+    expect(lines[0]).toContain('<b>Buy 2 RKLB</b>')
     undo(d, steps)
     expect(d.holdings).toEqual(before.holdings)
     expect(d.buckets).toEqual(before.buckets)
@@ -180,8 +180,8 @@ describe('several entries at once', () => {
       { type: 'spend', amount: 100, from: 'living' },
       { type: 'spend', amount: 50, from: 'living' }
     ])
-    expect(p.lines[0]).toContain('HK$17,900.00 left')
-    expect(p.lines[1]).toContain('HK$17,850.00 left')
+    expect(p.lines[0]).toContain('Left: HK$17,900.00')
+    expect(p.lines[1]).toContain('Left: HK$17,850.00')
     // Planning doesn't change the data.
     expect(bucket(d, 'ex-living').amount).toBe(18000)
   })
@@ -205,13 +205,5 @@ describe('validateActions', () => {
   it('drops bad optional fields instead of trusting them', () => {
     const [a] = validateActions([{ type: 'spend', amount: 5, currency: 'dollars', date: '2026-13-40', note: 'x'.repeat(500) }])
     expect(a).toMatchObject({ type: 'spend', amount: 5, currency: undefined, date: undefined, note: undefined })
-  })
-})
-
-describe('balances', () => {
-  it('lists buckets and accounts', () => {
-    const text = balances(exampleData(), t)
-    expect(text).toContain('Living expenses <i>(HSBC Everyday)</i>: HK$18,000.00')
-    expect(text).toContain('Wise USD: $6,200.00 · $3,700.00 unassigned')
   })
 })

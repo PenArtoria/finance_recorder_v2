@@ -14,7 +14,7 @@ import type { Action } from './actions'
 export type EntryCommand = 'spend' | 'income' | 'move' | 'buy' | 'sell'
 
 export type Command =
-  | { kind: 'help' | 'balances' | 'undo' | 'unknown' }
+  | { kind: 'help' | 'balances' | 'undo' | 'language' | 'unknown' }
   | { kind: 'actions'; actions: Action[] }
   | { kind: 'usage'; command: EntryCommand }
 
@@ -33,6 +33,9 @@ export function parseCommand(text: string, today: string): Command | null {
       return { kind: 'balances' }
     case 'undo':
       return { kind: 'undo' }
+    case 'language':
+    case 'lang':
+      return { kind: 'language' }
     case 'spend':
     case 'income':
     case 'move':

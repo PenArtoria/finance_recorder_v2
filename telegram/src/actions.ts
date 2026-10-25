@@ -9,13 +9,13 @@
 
 import type { AppData, CreditCard, Expense, Holding, MoneySource, Trade } from '@shared/types'
 import { ratesOf } from '../../windows/src/renderer/src/core/calc'
-import { bankAccounts, linkedAccount, moveMoney, parseSourceKey, sourceCurrency, sourceExists, sourceLabel, unassignedIn } from '../../windows/src/renderer/src/core/cash'
+import { bankAccounts, linkedAccount, moveMoney, parseSourceKey, sourceCurrency, sourceExists } from '../../windows/src/renderer/src/core/cash'
 import { uid } from '../../windows/src/renderer/src/core/data'
 import { convert, formatMoney, formatPrice, formatQty, type Rates } from '../../windows/src/renderer/src/core/money'
 import { applyExpense, categoryLabel, INCOME_CATEGORIES, SPEND_CATEGORIES, type SpendCategory } from '../../windows/src/renderer/src/core/spending'
 import { isUnits, isValued, syncHolding } from '../../windows/src/renderer/src/core/trades'
 import { BotError } from './env'
-import { esc, type Strings } from './i18n'
+import { esc, incomeCard, moveCard, spendCard, tradeCard, type Strings } from './i18n'
 
 /** Written in place of a bucket or account: the money isn't tracked in Moneta. */
 export const NONE = 'none'
@@ -571,10 +571,19 @@ export function dateText(iso: string, today: string, t: Strings): string {
   return new Intl.DateTimeFormat(t.locale, opts).format(new Date(`${iso}T00:00:00Z`))
 }
 
-/** One entry as HTML, using the data after it was applied for the balances left. */
+/** A bucket with the account it sits in, or an account. */
+function placeName(d: AppData, s: MoneySource): string {
+  if (s.kind === 'account') return d.holdings.find((h) => h.id === s.id)?.name ?? '?'
+  const b = d.buckets.find((x) => x.id === s.id)
+  if (!b) return '?'
+  const a = linkedAccount(d, b)
+  return a ? `${b.name} (${a.name})` : b.name
+}
+
+/** One entry as a card (HTML), using the data after it was applied for the balance left. */
 function describe(d: AppData, a: Action, today: string, t: Strings): string {
   const src = (ref: string | undefined) => (ref && ref !== NONE ? parseSourceKey(ref) : null)
-  const label = (s: MoneySource | null) => (s ? esc(sourceLabel(d, s)) : undefined)
+  const label = (s: MoneySource | null) => (s ? esc(placeName(d, s)) : undefined)
   const left = (s: MoneySource | null) => {
     const v = s ? balanceOf(d, s) : undefined
     return v ? esc(v) : undefined
@@ -582,7 +591,7 @@ function describe(d: AppData, a: Action, today: string, t: Strings): string {
 
   if (a.type === 'spend') {
     const s = src(a.from)
-    return t.spend({
+    return spendCard(t, {
       amount: esc(formatMoney(a.amount, a.currency!)),
       category: esc(categoryLabel(a.category!)),
       note: a.note ? esc(a.note) : undefined,
@@ -594,7 +603,7 @@ function describe(d: AppData, a: Action, today: string, t: Strings): string {
   }
   if (a.type === 'income') {
     const s = src(a.to)
-    return t.income({
+    return incomeCard(t, {
       amount: esc(formatMoney(a.amount, a.currency!)),
       category: esc(categoryLabel(a.category!)),
       note: a.note ? esc(a.note) : undefined,
@@ -607,7 +616,7 @@ function describe(d: AppData, a: Action, today: string, t: Strings): string {
     const to = src(a.to)!
     const toCcy = sourceCurrency(d, to)
     const got = toCcy && toCcy !== a.currency ? convert(a.amount, a.currency!, toCcy, ratesOf(d)) : null
-    return t.move({
+    return moveCard(t, {
       amount: esc(formatMoney(a.amount, a.currency!)),
       from: label(src(a.from))!,
       to: label(to)!,
@@ -616,7 +625,7 @@ function describe(d: AppData, a: Action, today: string, t: Strings): string {
   }
   const h = d.holdings.find((x) => x.id === a.holding)!
   const s = src(a.cash)
-  return t.trade({
+  return tradeCard(t, {
     side: a.type,
     quantity: esc(formatQty(a.quantity!)),
     holding: esc(h.symbol || h.name),
@@ -627,27 +636,4 @@ function describe(d: AppData, a: Action, today: string, t: Strings): string {
     date: dateText(a.date!, today, t),
     left: left(s)
   })
-}
-
-/** Buckets and bank accounts with their balances, as HTML. */
-export function balances(data: AppData, t: Strings): string {
-  const rates = ratesOf(data)
-  const out: string[] = [`<b>${esc(t.balances)}</b>`]
-  if (data.buckets.length) {
-    out.push('', `<b>${esc(t.buckets)}</b>`)
-    for (const b of data.buckets) {
-      const a = linkedAccount(data, b)
-      out.push(`• ${esc(b.name)}${a ? ` <i>(${esc(a.name)})</i>` : ''}: ${esc(formatMoney(b.amount, b.currency))}`)
-    }
-  }
-  const accounts = bankAccounts(data)
-  if (accounts.length) {
-    out.push('', `<b>${esc(t.accounts)}</b>`)
-    for (const a of accounts) {
-      const free = unassignedIn(data, a.id, rates)
-      const split = Math.abs(free - a.quantity) > 0.005
-      out.push(`• ${esc(a.name)}: ${esc(formatMoney(a.quantity, a.currency))}${split ? ` · ${esc(t.unassigned(formatMoney(free, a.currency)))}` : ''}`)
-    }
-  }
-  return out.length > 1 ? out.join('\n') : esc(t.noBalances)
 }

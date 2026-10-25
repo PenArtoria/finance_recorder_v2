@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { exampleData } from '../../windows/src/renderer/src/core/example'
 import { deriveKeys, newSyncKey, open, seal } from '../../windows/src/renderer/src/sync/crypto'
 import type { Env } from '../src/env'
-import { load, update } from '../src/moneta'
+import { load, refreshQuotes, update } from '../src/moneta'
 
 /** A stand-in for the sync service with the same rules: writes must name the version they're based on. */
 async function fakeSync(data: unknown, opts: { raw?: string; maxBlob?: number } = {}) {
@@ -25,6 +25,10 @@ async function fakeSync(data: unknown, opts: { raw?: string; maxBlob?: number } 
   const fetcher = {
     async fetch(url: string, init: RequestInit = {}) {
       const path = new URL(url).pathname
+      if (path === '/api/quotes') {
+        const symbols = (new URL(url).searchParams.get('symbols') ?? '').split(',')
+        return Response.json({ quotes: symbols.map((symbol) => ({ symbol, price: 1, previousClose: 1, currency: 'USD', fetchedAt: 1 })), errors: [] })
+      }
       if (path !== `/api/sync/${k.id}` || (init.headers as Record<string, string>).Authorization !== `Bearer ${k.auth}`) {
         return Response.json({ error: 'forbidden' }, { status: 403 })
       }
@@ -87,6 +91,14 @@ describe('sync', () => {
     const before = server.doc.blob
     await expect(update(env, (d) => void (d.buckets[0].amount = 1))).rejects.toMatchObject({ key: 'dataTooBig' })
     expect(server.doc.blob).toBe(before)
+  })
+
+  it('gets current prices for every holding with a symbol', async () => {
+    const { env } = await fakeSync(exampleData())
+    const { data } = await load(env)
+    expect(await refreshQuotes(env, data)).toBe(true)
+    expect(data.quotes['VWRA.L']).toMatchObject({ price: 1, fetchedAt: 1 })
+    expect(data.quotes['BTC-USD']).toMatchObject({ price: 1 })
   })
 
   it('won’t touch data from a newer Moneta', async () => {

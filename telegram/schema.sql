@@ -15,3 +15,9 @@ CREATE TABLE IF NOT EXISTS undo (
   expires INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS undo_chat ON undo (chat, created);
+
+-- The reply language each chat picked with /language. No row: follow Telegram's language.
+CREATE TABLE IF NOT EXISTS prefs (
+  chat INTEGER PRIMARY KEY,
+  lang TEXT NOT NULL
+);
